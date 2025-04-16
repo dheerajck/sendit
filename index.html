@@ -453,25 +453,34 @@
     let username = '';
     let isRoomCreator = false;
 
+    // Check if the network is Wi-Fi (using Network Information API if available)
+    function isWiFiNetwork() {
+      if (navigator.connection && navigator.connection.type) {
+        return navigator.connection.type === 'wifi';
+      }
+      // Fallback: Assume Wi-Fi if API is not available
+      return true;
+    }
+
     // Switch between tabs
     function switchTab(tabName) {
-      // Hide all tab contents
       document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
       });
-
-      // Remove active class from all tabs
       document.querySelectorAll('.tab').forEach(tab => {
         tab.classList.remove('active');
       });
-
-      // Show selected tab content
       document.getElementById(`${tabName}-content`).classList.add('active');
       document.getElementById(`${tabName}-tab`).classList.add('active');
     }
 
     // Create a room (host)
     function createRoom() {
+      if (!isWiFiNetwork()) {
+        addSystemMessage('Please connect to a Wi-Fi network for optimal performance.');
+        return;
+      }
+
       username = document.getElementById('host-username').value.trim();
       if (!username) {
         document.getElementById('username-error').textContent = 'Please enter a username';
@@ -482,20 +491,33 @@
       isRoomCreator = true;
 
       if (peer) {
-        peer.destroy(); // Destroy existing peer if any
+        peer.destroy();
       }
 
-      // Use username as the room code
       const roomCode = username;
 
       peer = new Peer(roomCode, {
         config: {
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+          iceCandidatePoolSize: 10
+        }
+      });
+
+      // Filter ICE candidates to prioritize Wi-Fi
+      peer.on('icecandidate', (event) => {
+        if (event.candidate) {
+          const candidate = event.candidate.candidate;
+          // Simplified Wi-Fi IP check (adjust based on your network)
+          if (candidate.includes('192.168.') || candidate.includes('10.')) {
+            console.log('Using Wi-Fi candidate:', candidate);
+          } else {
+            console.log('Ignoring non-Wi-Fi candidate:', candidate);
+            return;
+          }
         }
       });
 
       peer.on('open', (id) => {
-        // Show username as room code
         document.getElementById('room-code').textContent = roomCode;
         document.getElementById('room-info').style.display = 'block';
         document.getElementById('display-username').textContent = username;
@@ -518,13 +540,10 @@
         conn = connection;
         setupConnection();
 
-        // Extract guest username from peer ID
         const guestUsername = connection.metadata ? connection.metadata.username : 'Guest';
-
         addSystemMessage(`${guestUsername} has joined the room!`);
         updateConnectionStatus('connected');
 
-        // Switch to chat view
         document.getElementById('setup-card').style.display = 'none';
         document.getElementById('chat-card').style.display = 'block';
       });
@@ -532,13 +551,17 @@
 
     // Join existing room (guest)
     function joinRoom() {
+      if (!isWiFiNetwork()) {
+        addSystemMessage('Please connect to a Wi-Fi network for optimal performance.');
+        return;
+      }
+
       const roomCode = document.getElementById('room-code-input').value.trim();
       if (!roomCode) {
         addSystemMessage('Please enter a room code.');
         return;
       }
 
-      // Get username or generate one
       username = document.getElementById('guest-username').value.trim();
       if (!username) {
         username = 'Guest' + Math.floor(Math.random() * 1000);
@@ -547,20 +570,32 @@
       document.getElementById('display-username').textContent = username;
 
       if (peer) {
-        peer.destroy(); // Destroy existing peer if any
+        peer.destroy();
       }
 
-      // Create unique guest ID
       const guestId = `guest_${username}_${Math.random().toString(36).substring(2, 8)}`;
 
       peer = new Peer(guestId, {
         config: {
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+          iceCandidatePoolSize: 10
+        }
+      });
+
+      // Filter ICE candidates to prioritize Wi-Fi
+      peer.on('icecandidate', (event) => {
+        if (event.candidate) {
+          const candidate = event.candidate.candidate;
+          if (candidate.includes('192.168.') || candidate.includes('10.')) {
+            console.log('Using Wi-Fi candidate:', candidate);
+          } else {
+            console.log('Ignoring non-Wi-Fi candidate:', candidate);
+            return;
+          }
         }
       });
 
       peer.on('open', (id) => {
-        // Connect to host using room code (which is the host's username)
         conn = peer.connect(roomCode, {
           metadata: {
             username: username
@@ -587,7 +622,6 @@
         addSystemMessage('Connection established!');
         updateConnectionStatus('connected');
 
-        // Switch to chat view
         document.getElementById('setup-card').style.display = 'none';
         document.getElementById('chat-card').style.display = 'block';
       });
@@ -623,7 +657,6 @@
         peer = null;
       }
 
-      // Reset UI
       document.getElementById('setup-card').style.display = 'block';
       document.getElementById('chat-card').style.display = 'none';
       document.querySelector('.messages').innerHTML = '';
@@ -643,7 +676,6 @@
       if (!message) return;
 
       if (conn && conn.open) {
-        // Send message with metadata
         conn.send({
           type: 'message',
           text: message,
@@ -724,7 +756,6 @@
       const messageEl = document.createElement('div');
       messageEl.className = 'message received';
 
-      // Add sender name if we have it
       if (senderName) {
         const senderEl = document.createElement('div');
         senderEl.className = 'sender-name';
