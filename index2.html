@@ -3,67 +3,315 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PeerJS P2P Messaging (Dark Mode)</title>
+  <title>SendIt - P2P File Sharing</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-      max-width: 800px;
-      background-color: #1e1e1e;
-      color: #e0e0e0;
+    :root {
+      --bg-primary: #121212;
+      --bg-secondary: #1f1f1f;
+      --bg-tertiary: #2d2d2d;
+      --text-primary: #ffffff;
+      --text-secondary: #b0b0b0;
+      --accent: #8c52ff;
+      --accent-hover: #a375ff;
+      --error: #ff5252;
+      --success: #4caf50;
+      --border-radius: 8px;
+      --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+      --transition: all 0.3s ease;
     }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      padding: 0;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 800px;
+      padding: 20px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      padding: 20px 0;
+      margin-bottom: 20px;
+    }
+
+    .logo {
+      font-size: 2.5rem;
+      font-weight: bold;
+      margin-bottom: 5px;
+      color: var(--accent);
+    }
+
+    .tagline {
+      color: var(--text-secondary);
+      font-size: 1rem;
+    }
+
+    .card {
+      background-color: var(--bg-secondary);
+      border-radius: var(--border-radius);
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: var(--card-shadow);
+    }
+
+    h2 {
+      color: var(--text-primary);
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      font-size: 1.2rem;
+    }
+
+    h2 i {
+      margin-right: 10px;
+      color: var(--accent);
+    }
+
     input, textarea {
       width: 100%;
+      padding: 12px;
       margin: 10px 0;
-      padding: 8px;
-      background-color: #2d2d2d;
-      color: #e0e0e0;
-      border: 1px solid #555;
-      border-radius: 4px;
+      background-color: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid #444;
+      border-radius: var(--border-radius);
+      font-size: 1rem;
+      transition: var(--transition);
     }
-    button {
-      padding: 10px;
-      margin: 5px;
-      background-color: #3a3a3a;
-      color: #e0e0e0;
-      border: 1px solid #555;
-      border-radius: 4px;
+
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(140, 82, 255, 0.2);
+    }
+
+    .btn {
+      padding: 12px 16px;
+      background-color: var(--accent);
+      color: white;
+      border: none;
+      border-radius: var(--border-radius);
       cursor: pointer;
+      font-size: 1rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: var(--transition);
     }
-    button:hover {
-      background-color: #4a4a4a;
+
+    .btn i {
+      margin-right: 8px;
     }
-    #messages {
-      border: 1px solid #555;
+
+    .btn:hover {
+      background-color: var(--accent-hover);
+      transform: translateY(-2px);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .peer-id-display {
+      background-color: var(--bg-tertiary);
+      padding: 15px;
+      border-radius: var(--border-radius);
+      margin: 15px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .peer-id-value {
+      font-weight: bold;
+      color: var(--accent);
+    }
+
+    .copy-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 5px;
+      transition: var(--transition);
+    }
+
+    .copy-btn:hover {
+      color: var(--accent);
+    }
+
+    .message-container {
+      border: 1px solid #444;
+      border-radius: var(--border-radius);
+      height: 300px;
+      overflow-y: auto;
       padding: 10px;
-      height: 200px;
-      overflow-y: scroll;
-      background-color: #2d2d2d;
-      color: #e0e0e0;
+      background-color: var(--bg-tertiary);
+      margin-top: 15px;
     }
-    h1, h2 {
-      color: #ffffff;
+
+    .message {
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: var(--border-radius);
+      max-width: 80%;
+      word-break: break-word;
     }
-    p, span {
-      color: #e0e0e0;
+
+    .message-time {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-top: 5px;
+    }
+
+    .message.received {
+      background-color: #2a2a2a;
+      align-self: flex-start;
+      border-bottom-left-radius: 0;
+    }
+
+    .message.sent {
+      background-color: var(--accent);
+      align-self: flex-end;
+      margin-left: auto;
+      border-bottom-right-radius: 0;
+    }
+
+    .message-form {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .message-input {
+      flex-grow: 1;
+      margin: 0;
+    }
+
+    .connection-status {
+      font-size: 0.9rem;
+      padding: 6px 12px;
+      border-radius: 20px;
+      display: inline-flex;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .status-disconnected {
+      background-color: rgba(255, 82, 82, 0.2);
+      color: #ff5252;
+    }
+
+    .status-connected {
+      background-color: rgba(76, 175, 80, 0.2);
+      color: #4caf50;
+    }
+
+    .status-icon {
+      margin-right: 6px;
+      font-size: 0.8rem;
+    }
+
+    .messages {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .system-message {
+      text-align: center;
+      color: var(--text-secondary);
+      margin: 10px 0;
+      font-style: italic;
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 600px) {
+      .btn-group {
+        flex-direction: column;
+      }
+
+      .message {
+        max-width: 90%;
+      }
     }
   </style>
 </head>
 <body>
-  <h1>PeerJS P2P Messaging (Dark Mode)</h1>
-  <p>Steps: 1) Enter a unique username to get your Peer ID. 2) Share it with the other user. 3) Enter their Peer ID and connect. 4) Send messages.</p>
+  <div class="container">
+    <header>
+      <div class="logo">SendIt</div>
+      <p class="tagline">Secure P2P Messaging & File Sharing</p>
+    </header>
 
-  <h2>Connection Setup</h2>
-  <input id="username" placeholder="Enter your username (e.g., alice123)">
-  <button onclick="setUsername()">Set Username</button>
-  <p>Your Peer ID: <span id="my-id">Not connected...</span></p>
-  <input id="peer-id" placeholder="Enter other user's Peer ID (e.g., bob456)">
-  <button onclick="connect()">Connect to Peer</button>
+    <div class="card">
+      <div class="connection-status status-disconnected">
+        <span class="status-icon"><i class="fas fa-circle"></i></span>
+        <span id="connection-text">Not connected</span>
+      </div>
 
-  <h2>Messages</h2>
-  <input id="message" placeholder="Type your message">
-  <button onclick="sendMessage()">Send Message</button>
-  <div id="messages"></div>
+      <h2><i class="fas fa-user"></i> Your Identity</h2>
+      <input id="username" placeholder="Enter a unique username (e.g. alex123)">
+      <button class="btn" onclick="setUsername()">
+        <i class="fas fa-check-circle"></i> Set Username
+      </button>
+
+      <div class="peer-id-display">
+        <div>
+          <div>Your Peer ID:</div>
+          <div class="peer-id-value" id="my-id">Not connected...</div>
+        </div>
+        <button class="copy-btn" onclick="copyPeerId()">
+          <i class="fas fa-copy"></i>
+        </button>
+      </div>
+
+      <h2><i class="fas fa-plug"></i> Connect to Peer</h2>
+      <input id="peer-id" placeholder="Enter other user's Peer ID">
+      <button class="btn" onclick="connect()">
+        <i class="fas fa-link"></i> Connect
+      </button>
+    </div>
+
+    <div class="card">
+      <h2><i class="fas fa-comment-alt"></i> Messages</h2>
+      <div class="message-container" id="messages">
+        <div class="messages"></div>
+      </div>
+
+      <div class="message-form">
+        <input id="message" class="message-input" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
+        <button class="btn" onclick="sendMessage()">
+          <i class="fas fa-paper-plane"></i> Send
+        </button>
+      </div>
+    </div>
+  </div>
 
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script>
@@ -74,7 +322,7 @@
     function setUsername() {
       const username = document.getElementById('username').value.trim();
       if (!username) {
-        addMessage('Error: Please enter a username.');
+        addSystemMessage('Please enter a username.');
         return;
       }
       if (peer) {
@@ -87,18 +335,21 @@
       });
       peer.on('open', (id) => {
         document.getElementById('my-id').textContent = id;
-        addMessage('Your Peer ID: ' + id);
+        addSystemMessage('Connected to server! Your Peer ID: ' + id);
+        updateConnectionStatus('waiting');
       });
       peer.on('connection', (connection) => {
         conn = connection;
         setupConnection();
-        addMessage('Connected to peer!');
+        addSystemMessage('Incoming connection accepted!');
+        updateConnectionStatus('connected');
       });
       peer.on('error', (err) => {
-        addMessage(`Error: ${err.type} - ${err.message}`);
+        addSystemMessage(`Error: ${err.type} - ${err.message}`);
         if (err.type === 'unavailable-id') {
-          addMessage('Try a different username (e.g., add a number or unique word).');
+          addSystemMessage('Try a different username (e.g., add a number or unique word).');
         }
+        updateConnectionStatus('error');
       });
     }
 
@@ -106,48 +357,163 @@
     function connect() {
       const peerId = document.getElementById('peer-id').value.trim();
       if (!peerId) {
-        addMessage('Error: Enter a peer ID.');
+        addSystemMessage('Please enter a peer ID.');
         return;
       }
       if (!peer) {
-        addMessage('Error: Set your username first.');
+        addSystemMessage('Set your username first.');
         return;
       }
       conn = peer.connect(peerId);
       setupConnection();
-      addMessage('Connecting to peer...');
+      addSystemMessage('Connecting to peer...');
+      updateConnectionStatus('connecting');
     }
 
     // Setup data connection for messaging
     function setupConnection() {
       conn.on('open', () => {
-        addMessage('Connection established!');
+        addSystemMessage('Connection established!');
+        updateConnectionStatus('connected');
       });
       conn.on('data', (data) => {
-        addMessage(`Peer: ${data}`);
+        addReceivedMessage(data);
       });
       conn.on('close', () => {
-        addMessage('Connection closed.');
+        addSystemMessage('Connection closed.');
+        updateConnectionStatus('disconnected');
+      });
+      conn.on('error', (err) => {
+        addSystemMessage('Connection error: ' + err);
+        updateConnectionStatus('error');
       });
     }
 
     // Send message
     function sendMessage() {
       const message = document.getElementById('message').value.trim();
+      if (!message) return;
+
       if (conn && conn.open) {
         conn.send(message);
-        addMessage(`You: ${message}`);
+        addSentMessage(message);
         document.getElementById('message').value = '';
       } else {
-        addMessage('Error: Not connected to peer.');
+        addSystemMessage('Not connected to peer. Please connect first.');
       }
     }
 
-    // Display messages
-    function addMessage(text) {
-      const messages = document.getElementById('messages');
-      messages.innerHTML += `<p>${text}</p>`;
-      messages.scrollTop = messages.scrollHeight;
+    // Handle Enter key press
+    function handleKeyPress(event) {
+      if (event.key === 'Enter') {
+        sendMessage();
+      }
+    }
+
+    // Copy peer ID to clipboard
+    function copyPeerId() {
+      const peerId = document.getElementById('my-id').textContent;
+      if (peerId && peerId !== 'Not connected...') {
+        navigator.clipboard.writeText(peerId)
+          .then(() => {
+            addSystemMessage('Peer ID copied to clipboard!');
+          })
+          .catch(err => {
+            addSystemMessage('Failed to copy: ' + err);
+          });
+      }
+    }
+
+    // Update connection status indicator
+    function updateConnectionStatus(status) {
+      const statusElement = document.querySelector('.connection-status');
+      const statusTextElement = document.getElementById('connection-text');
+
+      statusElement.className = 'connection-status';
+
+      switch(status) {
+        case 'connected':
+          statusElement.classList.add('status-connected');
+          statusTextElement.textContent = 'Connected';
+          break;
+        case 'connecting':
+          statusElement.classList.add('status-disconnected');
+          statusTextElement.textContent = 'Connecting...';
+          break;
+        case 'waiting':
+          statusElement.classList.add('status-disconnected');
+          statusTextElement.textContent = 'Waiting for connection';
+          break;
+        case 'error':
+          statusElement.classList.add('status-disconnected');
+          statusTextElement.textContent = 'Connection error';
+          break;
+        default:
+          statusElement.classList.add('status-disconnected');
+          statusTextElement.textContent = 'Not connected';
+      }
+    }
+
+    // Display system message
+    function addSystemMessage(text) {
+      const messagesEl = document.querySelector('.messages');
+      const messageEl = document.createElement('div');
+      messageEl.className = 'system-message';
+      messageEl.textContent = text;
+      messagesEl.appendChild(messageEl);
+      scrollToBottom();
+    }
+
+    // Display received message
+    function addReceivedMessage(text) {
+      const messagesEl = document.querySelector('.messages');
+      const messageEl = document.createElement('div');
+      messageEl.className = 'message received';
+      messageEl.textContent = text;
+
+      const timeEl = document.createElement('div');
+      timeEl.className = 'message-time';
+      timeEl.textContent = getCurrentTime();
+      messageEl.appendChild(timeEl);
+
+      messagesEl.appendChild(messageEl);
+      scrollToBottom();
+    }
+
+    // Display sent message
+    function addSentMessage(text) {
+      const messagesEl = document.querySelector('.messages');
+      const messageEl = document.createElement('div');
+      messageEl.className = 'message sent';
+      messageEl.textContent = text;
+
+      const timeEl = document.createElement('div');
+      timeEl.className = 'message-time';
+      timeEl.textContent = getCurrentTime();
+      messageEl.appendChild(timeEl);
+
+      messagesEl.appendChild(messageEl);
+      scrollToBottom();
+    }
+
+    // Get current time for message timestamp
+    function getCurrentTime() {
+      const now = new Date();
+      let hours = now.getHours();
+      let minutes = now.getMinutes();
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+
+      hours = hours % 12;
+      hours = hours ? hours : 12;
+      minutes = minutes < 10 ? '0' + minutes : minutes;
+
+      return `${hours}:${minutes} ${ampm}`;
+    }
+
+    // Scroll to bottom of message container
+    function scrollToBottom() {
+      const container = document.getElementById('messages');
+      container.scrollTop = container.scrollHeight;
     }
   </script>
 </body>
