@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PeerJS P2P Messaging (Dark Mode)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      max-width: 800px;
+      background-color: #1e1e1e;
+      color: #e0e0e0;
+    }
+    input, textarea {
+      width: 100%;
+      margin: 10px 0;
+      padding: 8px;
+      background-color: #2d2d2d;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      border-radius: 4px;
+    }
+    button {
+      padding: 10px;
+      margin: 5px;
+      background-color: #3a3a3a;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #4a4a4a;
+    }
+    #messages {
+      border: 1px solid #555;
+      padding: 10px;
+      height: 200px;
+      overflow-y: scroll;
+      background-color: #2d2d2d;
+      color: #e0e0e0;
+    }
+    h1, h2 {
+      color: #ffffff;
+    }
+    p, span {
+      color: #e0e0e0;
+    }
+  </style>
+</head>
+<body>
+  <h1>PeerJS P2P Messaging (Dark Mode)</h1>
+  <p>Steps: 1) Enter a unique username to get your Peer ID. 2) Share it with the other user. 3) Enter their Peer ID and connect. 4) Send messages.</p>
+
+  <h2>Connection Setup</h2>
+  <input id="username" placeholder="Enter your username (e.g., alice123)">
+  <button onclick="setUsername()">Set Username</button>
+  <p>Your Peer ID: <span id="my-id">Not connected...</span></p>
+  <input id="peer-id" placeholder="Enter other user's Peer ID (e.g., bob456)">
+  <button onclick="connect()">Connect to Peer</button>
+
+  <h2>Messages</h2>
+  <input id="message" placeholder="Type your message">
+  <button onclick="sendMessage()">Send Message</button>
+  <div id="messages"></div>
+
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <script>
+    let peer = null;
+    let conn = null;
+
+    // Set username as Peer ID
+    function setUsername() {
+      const username = document.getElementById('username').value.trim();
+      if (!username) {
+        addMessage('Error: Please enter a username.');
+        return;
+      }
+      if (peer) {
+        peer.destroy(); // Destroy existing peer if any
+      }
+      peer = new Peer(username, {
+        config: {
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        }
+      });
+      peer.on('open', (id) => {
+        document.getElementById('my-id').textContent = id;
+        addMessage('Your Peer ID: ' + id);
+      });
+      peer.on('connection', (connection) => {
+        conn = connection;
+        setupConnection();
+        addMessage('Connected to peer!');
+      });
+      peer.on('error', (err) => {
+        addMessage(`Error: ${err.type} - ${err.message}`);
+        if (err.type === 'unavailable-id') {
+          addMessage('Try a different username (e.g., add a number or unique word).');
+        }
+      });
+    }
+
+    // Connect to another peer
+    function connect() {
+      const peerId = document.getElementById('peer-id').value.trim();
+      if (!peerId) {
+        addMessage('Error: Enter a peer ID.');
+        return;
+      }
+      if (!peer) {
+        addMessage('Error: Set your username first.');
+        return;
+      }
+      conn = peer.connect(peerId);
+      setupConnection();
+      addMessage('Connecting to peer...');
+    }
+
+    // Setup data connection for messaging
+    function setupConnection() {
+      conn.on('open', () => {
+        addMessage('Connection established!');
+      });
+      conn.on('data', (data) => {
+        addMessage(`Peer: ${data}`);
+      });
+      conn.on('close', () => {
+        addMessage('Connection closed.');
+      });
+    }
+
+    // Send message
+    function sendMessage() {
+      const message = document.getElementById('message').value.trim();
+      if (conn && conn.open) {
+        conn.send(message);
+        addMessage(`You: ${message}`);
+        document.getElementById('message').value = '';
+      } else {
+        addMessage('Error: Not connected to peer.');
+      }
+    }
+
+    // Display messages
+    function addMessage(text) {
+      const messages = document.getElementById('messages');
+      messages.innerHTML += `<p>${text}</p>`;
+      messages.scrollTop = messages.scrollHeight;
+    }
+  </script>
+</body>
+</html>
