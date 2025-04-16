@@ -251,6 +251,100 @@
       font-size: 0.9rem;
     }
 
+    .tabs {
+      display: flex;
+      margin-bottom: 15px;
+    }
+
+    .tab {
+      flex: 1;
+      text-align: center;
+      padding: 10px;
+      background-color: var(--bg-tertiary);
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      transition: var(--transition);
+    }
+
+    .tab.active {
+      border-bottom-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .tab:hover:not(.active) {
+      background-color: #353535;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .input-group {
+      position: relative;
+      margin-bottom: 15px;
+    }
+
+    .input-error {
+      color: var(--error);
+      font-size: 0.85rem;
+      margin-top: 5px;
+      display: none;
+    }
+
+    .input-error.visible {
+      display: block;
+    }
+
+    .room-display {
+      background-color: var(--bg-tertiary);
+      padding: 15px;
+      border-radius: var(--border-radius);
+      margin: 15px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .room-code {
+      font-weight: bold;
+      color: var(--accent);
+    }
+
+    .user-info {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background-color: var(--bg-secondary);
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      box-shadow: var(--card-shadow);
+      z-index: 10;
+    }
+
+    .user-avatar {
+      width: 24px;
+      height: 24px;
+      background-color: var(--accent);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 8px;
+    }
+
+    .sender-name {
+      font-weight: bold;
+      margin-right: 6px;
+      color: var(--accent);
+    }
+
     @media (max-width: 600px) {
       .btn-group {
         flex-direction: column;
@@ -258,6 +352,10 @@
 
       .message {
         max-width: 90%;
+      }
+
+      .tabs {
+        flex-direction: column;
       }
     }
   </style>
@@ -269,36 +367,67 @@
       <p class="tagline">Secure P2P Messaging & File Sharing</p>
     </header>
 
-    <div class="card">
+    <div id="setup-card" class="card">
       <div class="connection-status status-disconnected">
         <span class="status-icon"><i class="fas fa-circle"></i></span>
         <span id="connection-text">Not connected</span>
       </div>
 
-      <h2><i class="fas fa-user"></i> Your Identity</h2>
-      <input id="username" placeholder="Enter a unique username (e.g. alex123)">
-      <button class="btn" onclick="setUsername()">
-        <i class="fas fa-check-circle"></i> Set Username
-      </button>
-
-      <div class="peer-id-display">
-        <div>
-          <div>Your Peer ID:</div>
-          <div class="peer-id-value" id="my-id">Not connected...</div>
+      <div class="tabs">
+        <div class="tab active" id="create-tab" onclick="switchTab('create')">
+          <i class="fas fa-plus-circle"></i> Create Room
         </div>
-        <button class="copy-btn" onclick="copyPeerId()">
-          <i class="fas fa-copy"></i>
-        </button>
+        <div class="tab" id="join-tab" onclick="switchTab('join')">
+          <i class="fas fa-sign-in-alt"></i> Join Room
+        </div>
       </div>
 
-      <h2><i class="fas fa-plug"></i> Connect to Peer</h2>
-      <input id="peer-id" placeholder="Enter other user's Peer ID">
-      <button class="btn" onclick="connect()">
-        <i class="fas fa-link"></i> Connect
-      </button>
+      <div id="create-content" class="tab-content active">
+        <h2><i class="fas fa-user-plus"></i> Create a Room</h2>
+        <div class="input-group">
+          <input id="host-username" placeholder="Enter your username (e.g. alex123)">
+          <div id="username-error" class="input-error">This username is already taken</div>
+        </div>
+        <button class="btn" onclick="createRoom()">
+          <i class="fas fa-door-open"></i> Create Room
+        </button>
+
+        <div id="room-info" style="display: none;">
+          <div class="room-display">
+            <div>
+              <div>Room Code:</div>
+              <div class="room-code" id="room-code">Not created yet</div>
+            </div>
+            <button class="copy-btn" onclick="copyRoomCode()">
+              <i class="fas fa-copy"></i>
+            </button>
+          </div>
+          <p>Share this code with others to let them join your room</p>
+        </div>
+      </div>
+
+      <div id="join-content" class="tab-content">
+        <h2><i class="fas fa-sign-in-alt"></i> Join a Room</h2>
+        <div class="input-group">
+          <input id="guest-username" placeholder="Enter your username (optional)">
+        </div>
+        <div class="input-group">
+          <input id="room-code-input" placeholder="Enter room code">
+        </div>
+        <button class="btn" onclick="joinRoom()">
+          <i class="fas fa-door-open"></i> Join Room
+        </button>
+      </div>
     </div>
 
-    <div class="card">
+    <div id="chat-card" class="card" style="display: none;">
+      <div id="user-info" class="user-info">
+        <div class="user-avatar">
+          <i class="fas fa-user"></i>
+        </div>
+        <span id="display-username">Not Set</span>
+      </div>
+
       <h2><i class="fas fa-comment-alt"></i> Messages</h2>
       <div class="message-container" id="messages">
         <div class="messages"></div>
@@ -310,6 +439,10 @@
           <i class="fas fa-paper-plane"></i> Send
         </button>
       </div>
+
+      <button class="btn" style="margin-top: 10px;" onclick="leaveRoom()">
+        <i class="fas fa-sign-out-alt"></i> Leave Room
+      </button>
     </div>
   </div>
 
@@ -317,57 +450,135 @@
   <script>
     let peer = null;
     let conn = null;
+    let username = '';
+    let isRoomCreator = false;
 
-    // Set username as Peer ID
-    function setUsername() {
-      const username = document.getElementById('username').value.trim();
+    // Switch between tabs
+    function switchTab(tabName) {
+      // Hide all tab contents
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+      });
+
+      // Remove active class from all tabs
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.remove('active');
+      });
+
+      // Show selected tab content
+      document.getElementById(`${tabName}-content`).classList.add('active');
+      document.getElementById(`${tabName}-tab`).classList.add('active');
+    }
+
+    // Create a room (host)
+    function createRoom() {
+      username = document.getElementById('host-username').value.trim();
       if (!username) {
-        addSystemMessage('Please enter a username.');
+        document.getElementById('username-error').textContent = 'Please enter a username';
+        document.getElementById('username-error').classList.add('visible');
         return;
       }
+
+      isRoomCreator = true;
+
       if (peer) {
         peer.destroy(); // Destroy existing peer if any
       }
-      peer = new Peer(username, {
+
+      // Use username as the room code
+      const roomCode = username;
+
+      peer = new Peer(roomCode, {
         config: {
           iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
         }
       });
+
       peer.on('open', (id) => {
-        document.getElementById('my-id').textContent = id;
-        addSystemMessage('Connected to server! Your Peer ID: ' + id);
+        // Show username as room code
+        document.getElementById('room-code').textContent = roomCode;
+        document.getElementById('room-info').style.display = 'block';
+        document.getElementById('display-username').textContent = username;
+
+        addSystemMessage(`Room created! Your room code: ${roomCode}`);
         updateConnectionStatus('waiting');
       });
-      peer.on('connection', (connection) => {
-        conn = connection;
-        setupConnection();
-        addSystemMessage('Incoming connection accepted!');
-        updateConnectionStatus('connected');
-      });
+
       peer.on('error', (err) => {
-        addSystemMessage(`Error: ${err.type} - ${err.message}`);
         if (err.type === 'unavailable-id') {
-          addSystemMessage('Try a different username (e.g., add a number or unique word).');
+          document.getElementById('username-error').textContent = 'Username already taken. Try another username.';
+          document.getElementById('username-error').classList.add('visible');
+        } else {
+          addSystemMessage(`Error: ${err.type} - ${err.message}`);
         }
         updateConnectionStatus('error');
       });
+
+      peer.on('connection', (connection) => {
+        conn = connection;
+        setupConnection();
+
+        // Extract guest username from peer ID
+        const guestUsername = connection.metadata ? connection.metadata.username : 'Guest';
+
+        addSystemMessage(`${guestUsername} has joined the room!`);
+        updateConnectionStatus('connected');
+
+        // Switch to chat view
+        document.getElementById('setup-card').style.display = 'none';
+        document.getElementById('chat-card').style.display = 'block';
+      });
     }
 
-    // Connect to another peer
-    function connect() {
-      const peerId = document.getElementById('peer-id').value.trim();
-      if (!peerId) {
-        addSystemMessage('Please enter a peer ID.');
+    // Join existing room (guest)
+    function joinRoom() {
+      const roomCode = document.getElementById('room-code-input').value.trim();
+      if (!roomCode) {
+        addSystemMessage('Please enter a room code.');
         return;
       }
-      if (!peer) {
-        addSystemMessage('Set your username first.');
-        return;
+
+      // Get username or generate one
+      username = document.getElementById('guest-username').value.trim();
+      if (!username) {
+        username = 'Guest' + Math.floor(Math.random() * 1000);
       }
-      conn = peer.connect(peerId);
-      setupConnection();
-      addSystemMessage('Connecting to peer...');
-      updateConnectionStatus('connecting');
+
+      document.getElementById('display-username').textContent = username;
+
+      if (peer) {
+        peer.destroy(); // Destroy existing peer if any
+      }
+
+      // Create unique guest ID
+      const guestId = `guest_${username}_${Math.random().toString(36).substring(2, 8)}`;
+
+      peer = new Peer(guestId, {
+        config: {
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        }
+      });
+
+      peer.on('open', (id) => {
+        // Connect to host using room code (which is the host's username)
+        conn = peer.connect(roomCode, {
+          metadata: {
+            username: username
+          }
+        });
+
+        setupConnection();
+        addSystemMessage(`Joining room ${roomCode}...`);
+        updateConnectionStatus('connecting');
+      });
+
+      peer.on('error', (err) => {
+        addSystemMessage(`Error: ${err.type} - ${err.message}`);
+        if (err.type === 'peer-unavailable') {
+          addSystemMessage('Room not found. Check the code and try again.');
+        }
+        updateConnectionStatus('error');
+      });
     }
 
     // Setup data connection for messaging
@@ -375,18 +586,55 @@
       conn.on('open', () => {
         addSystemMessage('Connection established!');
         updateConnectionStatus('connected');
+
+        // Switch to chat view
+        document.getElementById('setup-card').style.display = 'none';
+        document.getElementById('chat-card').style.display = 'block';
       });
+
       conn.on('data', (data) => {
-        addReceivedMessage(data);
+        if (typeof data === 'object' && data.type === 'system') {
+          addSystemMessage(data.message);
+        } else if (typeof data === 'object' && data.type === 'message') {
+          addReceivedMessage(data.text, data.sender);
+        } else {
+          addReceivedMessage(data, conn.metadata?.username || 'Unknown');
+        }
       });
+
       conn.on('close', () => {
         addSystemMessage('Connection closed.');
         updateConnectionStatus('disconnected');
       });
+
       conn.on('error', (err) => {
         addSystemMessage('Connection error: ' + err);
         updateConnectionStatus('error');
       });
+    }
+
+    // Leave current room
+    function leaveRoom() {
+      if (conn) {
+        conn.close();
+      }
+      if (peer) {
+        peer.destroy();
+        peer = null;
+      }
+
+      // Reset UI
+      document.getElementById('setup-card').style.display = 'block';
+      document.getElementById('chat-card').style.display = 'none';
+      document.querySelector('.messages').innerHTML = '';
+      document.getElementById('room-info').style.display = 'none';
+      document.getElementById('username-error').classList.remove('visible');
+      document.getElementById('host-username').value = '';
+      document.getElementById('guest-username').value = '';
+      document.getElementById('room-code-input').value = '';
+
+      updateConnectionStatus('disconnected');
+      addSystemMessage('You left the room');
     }
 
     // Send message
@@ -395,7 +643,13 @@
       if (!message) return;
 
       if (conn && conn.open) {
-        conn.send(message);
+        // Send message with metadata
+        conn.send({
+          type: 'message',
+          text: message,
+          sender: username
+        });
+
         addSentMessage(message);
         document.getElementById('message').value = '';
       } else {
@@ -410,13 +664,13 @@
       }
     }
 
-    // Copy peer ID to clipboard
-    function copyPeerId() {
-      const peerId = document.getElementById('my-id').textContent;
-      if (peerId && peerId !== 'Not connected...') {
-        navigator.clipboard.writeText(peerId)
+    // Copy room code to clipboard
+    function copyRoomCode() {
+      const roomCode = document.getElementById('room-code').textContent;
+      if (roomCode && roomCode !== 'Not created yet') {
+        navigator.clipboard.writeText(roomCode)
           .then(() => {
-            addSystemMessage('Peer ID copied to clipboard!');
+            addSystemMessage('Room code copied to clipboard!');
           })
           .catch(err => {
             addSystemMessage('Failed to copy: ' + err);
@@ -442,7 +696,7 @@
           break;
         case 'waiting':
           statusElement.classList.add('status-disconnected');
-          statusTextElement.textContent = 'Waiting for connection';
+          statusTextElement.textContent = 'Waiting for someone to join';
           break;
         case 'error':
           statusElement.classList.add('status-disconnected');
@@ -465,11 +719,22 @@
     }
 
     // Display received message
-    function addReceivedMessage(text) {
+    function addReceivedMessage(text, senderName) {
       const messagesEl = document.querySelector('.messages');
       const messageEl = document.createElement('div');
       messageEl.className = 'message received';
-      messageEl.textContent = text;
+
+      // Add sender name if we have it
+      if (senderName) {
+        const senderEl = document.createElement('div');
+        senderEl.className = 'sender-name';
+        senderEl.textContent = senderName;
+        messageEl.appendChild(senderEl);
+      }
+
+      const contentEl = document.createElement('div');
+      contentEl.textContent = text;
+      messageEl.appendChild(contentEl);
 
       const timeEl = document.createElement('div');
       timeEl.className = 'message-time';
@@ -485,7 +750,10 @@
       const messagesEl = document.querySelector('.messages');
       const messageEl = document.createElement('div');
       messageEl.className = 'message sent';
-      messageEl.textContent = text;
+
+      const contentEl = document.createElement('div');
+      contentEl.textContent = text;
+      messageEl.appendChild(contentEl);
 
       const timeEl = document.createElement('div');
       timeEl.className = 'message-time';
