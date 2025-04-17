@@ -345,6 +345,97 @@
       color: var(--accent);
     }
 
+    /* Screen sharing styles */
+    .screen-container {
+      position: relative;
+      width: 100%;
+      background-color: var(--bg-tertiary);
+      border-radius: var(--border-radius);
+      margin-bottom: 15px;
+      overflow: hidden;
+    }
+
+    .screen-video {
+      width: 100%;
+      display: block;
+    }
+
+    .screen-controls {
+      padding: 10px;
+      background-color: var(--bg-tertiary);
+      border-radius: 0 0 var(--border-radius) var(--border-radius);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .screen-placeholder {
+      height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+
+    .btn-danger {
+      background-color: var(--error);
+    }
+
+    .btn-danger:hover {
+      background-color: #ff7575;
+    }
+
+    .share-options {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .mini-tab {
+      border-radius: var(--border-radius);
+      padding: 5px 10px;
+      background-color: var(--bg-tertiary);
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: var(--transition);
+    }
+
+    .mini-tab.active {
+      background-color: var(--accent);
+      color: white;
+    }
+
+    .screen-sharing-notice {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background-color: var(--error);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      animation: pulse 2s infinite;
+      z-index: 5;
+    }
+
+    .screen-sharing-notice i {
+      margin-right: 5px;
+    }
+
+    @keyframes pulse {
+      0% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.5;
+      }
+      100% {
+        opacity: 1;
+      }
+    }
+
     @media (max-width: 600px) {
       .btn-group {
         flex-direction: column;
@@ -428,6 +519,42 @@
         <span id="display-username">Not Set</span>
       </div>
 
+      <!-- Screen Sharing Card -->
+      <div id="screen-sharing-card" class="card">
+        <h2><i class="fas fa-desktop"></i> Screen Sharing</h2>
+
+        <div class="screen-container" id="screen-container">
+          <div id="screen-placeholder" class="screen-placeholder">
+            <div>No screen is being shared</div>
+          </div>
+          <video id="shared-screen" class="screen-video" autoplay playsinline style="display: none;"></video>
+          <div id="screen-sharing-notice" class="screen-sharing-notice" style="display: none;">
+            <i class="fas fa-broadcast-tower"></i> You are sharing your screen
+          </div>
+        </div>
+
+        <div class="share-options">
+          <div class="mini-tab active" id="entire-screen-tab" onclick="selectShareOption('entire-screen')">
+            <i class="fas fa-desktop"></i> Entire Screen
+          </div>
+          <div class="mini-tab" id="window-tab" onclick="selectShareOption('window')">
+            <i class="far fa-window-maximize"></i> Window
+          </div>
+          <div class="mini-tab" id="tab-tab" onclick="selectShareOption('tab')">
+            <i class="fas fa-browser"></i> Browser Tab
+          </div>
+        </div>
+
+        <div class="screen-controls">
+          <button class="btn" id="start-share-btn" onclick="startScreenShare()">
+            <i class="fas fa-share-square"></i> Share Screen
+          </button>
+          <button class="btn btn-danger" id="stop-share-btn" onclick="stopScreenShare()" style="display: none;">
+            <i class="fas fa-stop-circle"></i> Stop Sharing
+          </button>
+        </div>
+      </div>
+
       <h2><i class="fas fa-comment-alt"></i> Messages</h2>
       <div class="message-container" id="messages">
         <div class="messages"></div>
@@ -448,12 +575,16 @@
 
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script>
-
-
 let peer = null;
 let connections = []; // Array to store all connections (host and guests)
 let username = '';
 let isRoomCreator = false;
+let localStream = null;
+let shareOption = 'entire-screen';
+
+// Screen share variables
+let isScreenSharing = false;
+let screenSharingPeerId = null;
 
 function switchTab(tabName) {
   document.querySelectorAll('.tab-content').forEach(content => {
@@ -464,6 +595,138 @@ function switchTab(tabName) {
   });
   document.getElementById(`${tabName}-content`).classList.add('active');
   document.getElementById(`${tabName}-tab`).classList.add('active');
+}
+
+function selectShareOption(option) {
+  shareOption = option;
+  document.querySelectorAll('.mini-tab').forEach(tab => {
+    tab.classList.remove('active');
+  });
+  document.getElementById(`${option}-tab`).classList.add('active');
+}
+
+async function startScreenShare() {
+  if (isScreenSharing) return;
+
+  try {
+    let displayMediaOptions = { video: true, audio: true };
+
+    // Apply different constraints based on selected option
+    if (shareOption === 'entire-screen') {
+      displayMediaOptions = { video: { displaySurface: 'monitor' }, audio: true };
+    } else if (shareOption === 'window') {
+      displayMediaOptions = { video: { displaySurface: 'window' }, audio: true };
+    } else if (shareOption === 'tab') {
+      displayMediaOptions = { video: { displaySurface: 'browser' }, audio: true };
+    }
+
+    localStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+
+    // Display local stream
+    const sharedScreen = document.getElementById('shared-screen');
+    document.getElementById('screen-placeholder').style.display = 'none';
+    sharedScreen.style.display = 'block';
+    sharedScreen.srcObject = localStream;
+
+    // Show screen sharing notice
+    document.getElementById('screen-sharing-notice').style.display = 'flex';
+
+    // Toggle buttons
+    document.getElementById('start-share-btn').style.display = 'none';
+    document.getElementById('stop-share-btn').style.display = 'inline-flex';
+
+    isScreenSharing = true;
+    screenSharingPeerId = peer.id;
+
+    // Create a video call to EACH peer
+    connections.forEach(conn => {
+      if (conn.open) {
+        // First notify peers that screen sharing is starting
+        conn.send({
+          type: 'screenShareStarting',
+          peerId: peer.id,
+          username: username
+        });
+
+        // Then call them with the video stream
+        const call = peer.call(conn.peer, localStream, { metadata: { type: 'screenShare', username } });
+        setupCallEvents(call);
+      }
+    });
+
+    // Listen for stream end events
+    localStream.getVideoTracks()[0].addEventListener('ended', () => {
+      stopScreenShare();
+    });
+
+    addSystemMessage('You started sharing your screen');
+  } catch (err) {
+    console.error('Error starting screen share:', err);
+    addSystemMessage('Failed to share screen: ' + err.message);
+  }
+}
+
+function stopScreenShare() {
+  if (!isScreenSharing || !localStream) return;
+
+  // Stop all tracks
+  localStream.getTracks().forEach(track => track.stop());
+  localStream = null;
+
+  // Update UI
+  document.getElementById('shared-screen').style.display = 'none';
+  document.getElementById('shared-screen').srcObject = null;
+  document.getElementById('screen-placeholder').style.display = 'flex';
+  document.getElementById('screen-sharing-notice').style.display = 'none';
+  document.getElementById('start-share-btn').style.display = 'inline-flex';
+  document.getElementById('stop-share-btn').style.display = 'none';
+
+  isScreenSharing = false;
+
+  // Notify all peers that screen sharing has stopped
+  connections.forEach(conn => {
+    if (conn.open) {
+      conn.send({
+        type: 'screenShareStopped',
+        peerId: peer.id,
+        username: username
+      });
+    }
+  });
+
+  addSystemMessage('You stopped sharing your screen');
+}
+
+// Setup call events for both initiator and receiver
+function setupCallEvents(call) {
+  call.on('stream', (remoteStream) => {
+    // Display the remote stream if it's a screen share
+    if (call.metadata?.type === 'screenShare') {
+      const sharedScreen = document.getElementById('shared-screen');
+      document.getElementById('screen-placeholder').style.display = 'none';
+      sharedScreen.style.display = 'block';
+      sharedScreen.srcObject = remoteStream;
+      screenSharingPeerId = call.peer;
+
+      addSystemMessage(`${call.metadata.username || 'Someone'} is sharing their screen`);
+    }
+  });
+
+  call.on('close', () => {
+    if (call.metadata?.type === 'screenShare' && screenSharingPeerId === call.peer) {
+      document.getElementById('shared-screen').style.display = 'none';
+      document.getElementById('shared-screen').srcObject = null;
+      document.getElementById('screen-placeholder').style.display = 'flex';
+      screenSharingPeerId = null;
+
+      addSystemMessage(`${call.metadata.username || 'Someone'} stopped sharing their screen`);
+    }
+  });
+
+  call.on('error', (err) => {
+    console.error('Call error:', err);
+    addSystemMessage('Screen sharing error: ' + err.message);
+  });
 }
 
 function createRoom() {
@@ -483,7 +746,10 @@ function createRoom() {
   const roomCode = username;
   peer = new Peer(roomCode, {
     config: {
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
     }
   });
 
@@ -536,6 +802,13 @@ function createRoom() {
     document.getElementById('setup-card').style.display = 'none';
     document.getElementById('chat-card').style.display = 'block';
   });
+
+  // Handle incoming calls (for screen sharing)
+  peer.on('call', (call) => {
+    // Always answer screen sharing calls
+    call.answer(); // Answer without sending a stream back
+    setupCallEvents(call);
+  });
 }
 
 function joinRoom() {
@@ -556,10 +829,14 @@ function joinRoom() {
     peer.destroy();
   }
 
+  // Generate a random unique ID for this guest to prevent collisions
   const guestId = `guest_${username}_${Math.random().toString(36).substring(2, 8)}`;
   peer = new Peer(guestId, {
     config: {
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
     }
   });
 
@@ -574,11 +851,21 @@ function joinRoom() {
   });
 
   peer.on('connection', (connection) => {
-    setupConnection(connection);
-    connections.push(connection);
-    const guestUsername = connection.metadata ? connection.metadata.username : 'Guest';
-    addSystemMessage(`${guestUsername} has connected to you!`);
-    updateConnectionStatus('connected');
+    // Only add if not already in connections
+    if (!connections.some(c => c.peer === connection.peer)) {
+      setupConnection(connection);
+      connections.push(connection);
+      const guestUsername = connection.metadata ? connection.metadata.username : 'Guest';
+      addSystemMessage(`${guestUsername} has connected to you!`);
+      updateConnectionStatus('connected');
+    }
+  });
+
+  // Handle incoming calls (for screen sharing)
+  peer.on('call', (call) => {
+    // Always answer screen sharing calls
+    call.answer(); // Answer without sending a stream back
+    setupCallEvents(call);
   });
 
   peer.on('error', (err) => {
@@ -629,6 +916,18 @@ function setupConnection(connection) {
         // Remove peer from connections
         connections = connections.filter(conn => conn.peer !== data.peerId);
         addSystemMessage(`${data.username} has left the room.`);
+      } else if (data.type === 'screenShareStarting') {
+        addSystemMessage(`${data.username || 'Someone'} is starting to share their screen...`);
+        // No need to do anything else here - the actual media will come through a call
+      } else if (data.type === 'screenShareStopped') {
+        // Only update if this peer was the one sharing
+        if (screenSharingPeerId === data.peerId) {
+          document.getElementById('shared-screen').style.display = 'none';
+          document.getElementById('shared-screen').srcObject = null;
+          document.getElementById('screen-placeholder').style.display = 'flex';
+          screenSharingPeerId = null;
+          addSystemMessage(`${data.username || 'Someone'} stopped sharing their screen`);
+        }
       }
     } else {
       addReceivedMessage(data, connection.metadata?.username || 'Unknown');
@@ -652,17 +951,24 @@ function setupConnection(connection) {
         }
       });
     }
+
+    // If the disconnected peer was sharing screen, reset the screen sharing view
+    if (screenSharingPeerId === connection.peer) {
+      document.getElementById('shared-screen').style.display = 'none';
+      document.getElementById('shared-screen').srcObject = null;
+      document.getElementById('screen-placeholder').style.display = 'flex';
+      screenSharingPeerId = null;
+      addSystemMessage(`${connection.metadata?.username || 'Someone'} stopped sharing their screen (disconnected)`);
+    }
   });
-
-  // lets fix this later, it works now
-
-  // connection.on('error', (err) => {
-  //   addSystemMessage('Connection error: ' + err);
-  //   updateConnectionStatus('error');
-  // });
 }
 
 function leaveRoom() {
+  // Stop screen sharing if active
+  if (isScreenSharing) {
+    stopScreenShare();
+  }
+
   connections.forEach(conn => conn.close());
   if (peer) {
     peer.destroy();
@@ -814,8 +1120,6 @@ function scrollToBottom() {
   const container = document.getElementById('messages');
   container.scrollTop = container.scrollHeight;
 }
-
-
   </script>
 </body>
 </html>
