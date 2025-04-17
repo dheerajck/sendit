@@ -533,7 +533,7 @@
           </div>
         </div>
 
-        <div class="share-options">
+        <!-- <div class="share-options">
           <div class="mini-tab active" id="entire-screen-tab" onclick="selectShareOption('entire-screen')">
             <i class="fas fa-desktop"></i> Entire Screen
           </div>
@@ -543,7 +543,7 @@
           <div class="mini-tab" id="tab-tab" onclick="selectShareOption('tab')">
             <i class="fas fa-browser"></i> Browser Tab
           </div>
-        </div>
+        </div> -->
 
         <div class="screen-controls">
           <button class="btn" id="start-share-btn" onclick="startScreenShare()">
@@ -597,13 +597,13 @@ function switchTab(tabName) {
   document.getElementById(`${tabName}-tab`).classList.add('active');
 }
 
-function selectShareOption(option) {
-  shareOption = option;
-  document.querySelectorAll('.mini-tab').forEach(tab => {
-    tab.classList.remove('active');
-  });
-  document.getElementById(`${option}-tab`).classList.add('active');
-}
+// function selectShareOption(option) {
+//   shareOption = option;
+//   document.querySelectorAll('.mini-tab').forEach(tab => {
+//     tab.classList.remove('active');
+//   });
+//   document.getElementById(`${option}-tab`).classList.add('active');
+// }
 
 async function startScreenShare() {
   if (isScreenSharing) return;
