@@ -449,6 +449,70 @@
         flex-direction: column;
       }
     }
+
+    /* Audio sharing styles */
+    .audio-container {
+      position: relative;
+      width: 100%;
+      background-color: var(--bg-tertiary);
+      border-radius: var(--border-radius);
+      margin-bottom: 15px;
+      overflow: hidden;
+    }
+
+    .audio-placeholder {
+      height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+
+    .audio-controls {
+      padding: 10px;
+      background-color: var(--bg-tertiary);
+      border-radius: 0 0 var(--border-radius) var(--border-radius);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .audio-sharing-notice {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background-color: var(--accent);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      animation: pulse 2s infinite;
+      z-index: 5;
+    }
+
+    .audio-sharing-notice i {
+      margin-right: 5px;
+    }
+
+    .audio-visualizer {
+      height: 80px;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+    }
+
+    .audio-bar {
+      background-color: var(--accent);
+      width: 4px;
+      height: 10px;
+      margin: 0 2px;
+      border-radius: 2px;
+      transition: height 0.1s ease;
+    }
   </style>
 </head>
 <body>
@@ -533,24 +597,36 @@
           </div>
         </div>
 
-        <!-- <div class="share-options">
-          <div class="mini-tab active" id="entire-screen-tab" onclick="selectShareOption('entire-screen')">
-            <i class="fas fa-desktop"></i> Entire Screen
-          </div>
-          <div class="mini-tab" id="window-tab" onclick="selectShareOption('window')">
-            <i class="far fa-window-maximize"></i> Window
-          </div>
-          <div class="mini-tab" id="tab-tab" onclick="selectShareOption('tab')">
-            <i class="fas fa-browser"></i> Browser Tab
-          </div>
-        </div> -->
-
         <div class="screen-controls">
           <button class="btn" id="start-share-btn" onclick="startScreenShare()">
             <i class="fas fa-share-square"></i> Share Screen
           </button>
           <button class="btn btn-danger" id="stop-share-btn" onclick="stopScreenShare()" style="display: none;">
             <i class="fas fa-stop-circle"></i> Stop Sharing
+          </button>
+        </div>
+      </div>
+
+      <!-- Audio Sharing Card -->
+      <div id="audio-sharing-card" class="card">
+        <h2><i class="fas fa-microphone"></i> Audio Sharing</h2>
+
+        <div class="audio-container">
+          <div id="audio-placeholder" class="audio-placeholder">
+            <div>No audio is being shared</div>
+          </div>
+          <audio id="shared-audio" autoplay playsinline style="display: none;"></audio>
+          <div id="audio-sharing-notice" class="audio-sharing-notice" style="display: none;">
+            <i class="fas fa-broadcast-tower"></i> You are sharing your audio
+          </div>
+        </div>
+
+        <div class="audio-controls">
+          <button class="btn" id="start-audio-btn" onclick="startAudioShare()">
+            <i class="fas fa-microphone"></i> Share Audio
+          </button>
+          <button class="btn btn-danger" id="stop-audio-btn" onclick="stopAudioShare()" style="display: none;">
+            <i class="fas fa-microphone-slash"></i> Stop Sharing
           </button>
         </div>
       </div>
@@ -585,6 +661,14 @@ let shareOption = 'entire-screen';
 // Screen share variables
 let isScreenSharing = false;
 let screenSharingPeerId = null;
+
+// Audio share variables
+let audioStream = null;
+let isAudioSharing = false;
+let audioSharingPeerId = null;
+let audioContext = null;
+let audioAnalyser = null;
+let audioVisualizerInterval = null;
 
 function switchTab(tabName) {
   document.querySelectorAll('.tab-content').forEach(content => {
@@ -729,6 +813,167 @@ function setupCallEvents(call) {
   });
 }
 
+async function startAudioShare() {
+  if (isAudioSharing) return;
+
+  try {
+    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    // Show audio sharing notice
+    document.getElementById('audio-sharing-notice').style.display = 'flex';
+    document.getElementById('audio-placeholder').style.display = 'none';
+
+    // Create audio visualizer
+    createAudioVisualizer();
+
+    // Toggle buttons
+    document.getElementById('start-audio-btn').style.display = 'none';
+    document.getElementById('stop-audio-btn').style.display = 'inline-flex';
+
+    isAudioSharing = true;
+    audioSharingPeerId = peer.id;
+
+    // Create an audio call to EACH peer
+    connections.forEach(conn => {
+      if (conn.open) {
+        // First notify peers that audio sharing is starting
+        conn.send({
+          type: 'audioShareStarting',
+          peerId: peer.id,
+          username: username
+        });
+
+        // Then call them with the audio stream
+        const call = peer.call(conn.peer, audioStream, { metadata: { type: 'audioShare', username } });
+        setupAudioCallEvents(call);
+      }
+    });
+
+    addSystemMessage('You started sharing your audio');
+  } catch (err) {
+    console.error('Error starting audio share:', err);
+    addSystemMessage('Failed to share audio: ' + err.message);
+  }
+}
+
+function stopAudioShare() {
+  if (!isAudioSharing || !audioStream) return;
+
+  // Stop all tracks
+  audioStream.getTracks().forEach(track => track.stop());
+  audioStream = null;
+
+  // Clean up audio context if it exists
+  if (audioContext) {
+    clearInterval(audioVisualizerInterval);
+    audioContext.close();
+    audioContext = null;
+    audioAnalyser = null;
+  }
+
+  // Update UI
+  document.getElementById('audio-sharing-notice').style.display = 'none';
+  document.getElementById('audio-placeholder').style.display = 'flex';
+  document.getElementById('start-audio-btn').style.display = 'inline-flex';
+  document.getElementById('stop-audio-btn').style.display = 'none';
+
+  // Remove visualizer if it exists
+  const visualizer = document.getElementById('audio-visualizer');
+  if (visualizer) {
+    visualizer.remove();
+  }
+
+  isAudioSharing = false;
+
+  // Notify all peers that audio sharing has stopped
+  connections.forEach(conn => {
+    if (conn.open) {
+      conn.send({
+        type: 'audioShareStopped',
+        peerId: peer.id,
+        username: username
+      });
+    }
+  });
+
+  addSystemMessage('You stopped sharing your audio');
+}
+
+function createAudioVisualizer() {
+  // Create visualizer container
+  const placeholder = document.getElementById('audio-placeholder');
+  placeholder.innerHTML = '';
+
+  const visualizer = document.createElement('div');
+  visualizer.id = 'audio-visualizer';
+  visualizer.className = 'audio-visualizer';
+  placeholder.appendChild(visualizer);
+  placeholder.style.display = 'flex';
+
+  // Create audio bars for visualization
+  const barsCount = 20;
+  for (let i = 0; i < barsCount; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'audio-bar';
+    visualizer.appendChild(bar);
+  }
+
+  // Set up audio context for analyzing audio
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioContext.createMediaStreamSource(audioStream);
+  audioAnalyser = audioContext.createAnalyser();
+  audioAnalyser.fftSize = 64;
+  source.connect(audioAnalyser);
+
+  const bufferLength = audioAnalyser.frequencyBinCount;
+  const dataArray = new Uint8Array(bufferLength);
+
+  // Update visualizer at intervals
+  audioVisualizerInterval = setInterval(() => {
+    audioAnalyser.getByteFrequencyData(dataArray);
+    const bars = document.querySelectorAll('.audio-bar');
+
+    for (let i = 0; i < bars.length; i++) {
+      const index = Math.floor(i * (bufferLength / bars.length));
+      const value = dataArray[index];
+      const height = Math.max(5, value / 2); // Scale the height
+      bars[i].style.height = `${height}px`;
+    }
+  }, 100);
+}
+
+// Setup call events specifically for audio
+function setupAudioCallEvents(call) {
+  call.on('stream', (remoteStream) => {
+    // Display the remote audio if it's an audio share
+    if (call.metadata?.type === 'audioShare') {
+      const sharedAudio = document.getElementById('shared-audio');
+      document.getElementById('audio-placeholder').style.display = 'none';
+      sharedAudio.style.display = 'block';
+      sharedAudio.srcObject = remoteStream;
+      audioSharingPeerId = call.peer;
+
+      addSystemMessage(`${call.metadata.username || 'Someone'} is sharing their audio`);
+    }
+  });
+
+  call.on('close', () => {
+    if (call.metadata?.type === 'audioShare' && audioSharingPeerId === call.peer) {
+      document.getElementById('shared-audio').style.display = 'none';
+      document.getElementById('shared-audio').srcObject = null;
+      document.getElementById('audio-placeholder').style.display = 'flex';
+      audioSharingPeerId = null;
+
+      addSystemMessage(`${call.metadata.username || 'Someone'} stopped sharing their audio`);
+    }
+  });
+
+  call.on('error', (err) => {
+    console.error('Audio call error:', err);
+    addSystemMessage('Audio sharing error: ' + err.message);
+  });
+}
+
 function createRoom() {
   username = document.getElementById('host-username').value.trim();
   if (!username) {
@@ -803,11 +1048,21 @@ function createRoom() {
     document.getElementById('chat-card').style.display = 'block';
   });
 
-  // Handle incoming calls (for screen sharing)
+  // Handle incoming calls (for screen sharing and audio sharing)
   peer.on('call', (call) => {
-    // Always answer screen sharing calls
-    call.answer(); // Answer without sending a stream back
-    setupCallEvents(call);
+    // Check call metadata to handle differently based on type
+    const callType = call.metadata?.type || 'unknown';
+
+    if (callType === 'screenShare' || callType === 'audioShare') {
+      // Answer without sending a stream back for screen and audio shares
+      call.answer();
+
+      if (callType === 'screenShare') {
+        setupCallEvents(call);
+      } else if (callType === 'audioShare') {
+        setupAudioCallEvents(call);
+      }
+    }
   });
 }
 
@@ -861,11 +1116,21 @@ function joinRoom() {
     }
   });
 
-  // Handle incoming calls (for screen sharing)
+  // Handle incoming calls (for screen sharing and audio sharing)
   peer.on('call', (call) => {
-    // Always answer screen sharing calls
-    call.answer(); // Answer without sending a stream back
-    setupCallEvents(call);
+    // Check call metadata to handle differently based on type
+    const callType = call.metadata?.type || 'unknown';
+
+    if (callType === 'screenShare' || callType === 'audioShare') {
+      // Answer without sending a stream back for screen and audio shares
+      call.answer();
+
+      if (callType === 'screenShare') {
+        setupCallEvents(call);
+      } else if (callType === 'audioShare') {
+        setupAudioCallEvents(call);
+      }
+    }
   });
 
   peer.on('error', (err) => {
@@ -928,6 +1193,18 @@ function setupConnection(connection) {
           screenSharingPeerId = null;
           addSystemMessage(`${data.username || 'Someone'} stopped sharing their screen`);
         }
+      } else if (data.type === 'audioShareStarting') {
+        addSystemMessage(`${data.username || 'Someone'} is starting to share audio...`);
+        // No need to do anything else here - the actual media will come through a call
+      } else if (data.type === 'audioShareStopped') {
+        // Only update if this peer was the one sharing
+        if (audioSharingPeerId === data.peerId) {
+          document.getElementById('shared-audio').style.display = 'none';
+          document.getElementById('shared-audio').srcObject = null;
+          document.getElementById('audio-placeholder').style.display = 'flex';
+          audioSharingPeerId = null;
+          addSystemMessage(`${data.username || 'Someone'} stopped sharing audio`);
+        }
       }
     } else {
       addReceivedMessage(data, connection.metadata?.username || 'Unknown');
@@ -960,6 +1237,15 @@ function setupConnection(connection) {
       screenSharingPeerId = null;
       addSystemMessage(`${connection.metadata?.username || 'Someone'} stopped sharing their screen (disconnected)`);
     }
+
+    // If the disconnected peer was sharing audio, reset the audio sharing view
+    if (audioSharingPeerId === connection.peer) {
+      document.getElementById('shared-audio').style.display = 'none';
+      document.getElementById('shared-audio').srcObject = null;
+      document.getElementById('audio-placeholder').style.display = 'flex';
+      audioSharingPeerId = null;
+      addSystemMessage(`${connection.metadata?.username || 'Someone'} stopped sharing their audio (disconnected)`);
+    }
   });
 }
 
@@ -967,6 +1253,11 @@ function leaveRoom() {
   // Stop screen sharing if active
   if (isScreenSharing) {
     stopScreenShare();
+  }
+
+  // Stop audio sharing if active
+  if (isAudioSharing) {
+    stopAudioShare();
   }
 
   connections.forEach(conn => conn.close());
