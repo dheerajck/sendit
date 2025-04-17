@@ -448,341 +448,374 @@
 
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script>
-    let peer = null;
-    let conn = null;
-    let username = '';
-    let isRoomCreator = false;
 
-    // Switch between tabs
-    function switchTab(tabName) {
-      // Hide all tab contents
-      document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.remove('active');
-      });
 
-      // Remove active class from all tabs
-      document.querySelectorAll('.tab').forEach(tab => {
-        tab.classList.remove('active');
-      });
+let peer = null;
+let connections = []; // Array to store all connections (host and guests)
+let username = '';
+let isRoomCreator = false;
 
-      // Show selected tab content
-      document.getElementById(`${tabName}-content`).classList.add('active');
-      document.getElementById(`${tabName}-tab`).classList.add('active');
+function switchTab(tabName) {
+  document.querySelectorAll('.tab-content').forEach(content => {
+    content.classList.remove('active');
+  });
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.classList.remove('active');
+  });
+  document.getElementById(`${tabName}-content`).classList.add('active');
+  document.getElementById(`${tabName}-tab`).classList.add('active');
+}
+
+function createRoom() {
+  username = document.getElementById('host-username').value.trim();
+  if (!username) {
+    document.getElementById('username-error').textContent = 'Please enter a username';
+    document.getElementById('username-error').classList.add('visible');
+    return;
+  }
+
+  isRoomCreator = true;
+
+  if (peer) {
+    peer.destroy();
+  }
+
+  const roomCode = username;
+  peer = new Peer(roomCode, {
+    config: {
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     }
+  });
 
-    // Create a room (host)
-    function createRoom() {
-      username = document.getElementById('host-username').value.trim();
-      if (!username) {
-        document.getElementById('username-error').textContent = 'Please enter a username';
-        document.getElementById('username-error').classList.add('visible');
-        return;
-      }
+  peer.on('open', (id) => {
+    document.getElementById('room-code').textContent = roomCode;
+    document.getElementById('room-info').style.display = 'block';
+    document.getElementById('display-username').textContent = username;
+    addSystemMessage(`Room created! Your room code: ${roomCode}`);
+    updateConnectionStatus('waiting');
+  });
 
-      isRoomCreator = true;
-
-      if (peer) {
-        peer.destroy(); // Destroy existing peer if any
-      }
-
-      // Use username as the room code
-      const roomCode = username;
-
-      peer = new Peer(roomCode, {
-        config: {
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-        }
-      });
-
-      peer.on('open', (id) => {
-        // Show username as room code
-        document.getElementById('room-code').textContent = roomCode;
-        document.getElementById('room-info').style.display = 'block';
-        document.getElementById('display-username').textContent = username;
-
-        addSystemMessage(`Room created! Your room code: ${roomCode}`);
-        updateConnectionStatus('waiting');
-      });
-
-      peer.on('error', (err) => {
-        if (err.type === 'unavailable-id') {
-          document.getElementById('username-error').textContent = 'Username already taken. Try another username.';
-          document.getElementById('username-error').classList.add('visible');
-        } else {
-          addSystemMessage(`Error: ${err.type} - ${err.message}`);
-        }
-        updateConnectionStatus('error');
-      });
-
-      peer.on('connection', (connection) => {
-        conn = connection;
-        setupConnection();
-
-        // Extract guest username from peer ID
-        const guestUsername = connection.metadata ? connection.metadata.username : 'Guest';
-
-        addSystemMessage(`${guestUsername} has joined the room!`);
-        updateConnectionStatus('connected');
-
-        // Switch to chat view
-        document.getElementById('setup-card').style.display = 'none';
-        document.getElementById('chat-card').style.display = 'block';
-      });
+  peer.on('error', (err) => {
+    if (err.type === 'unavailable-id') {
+      document.getElementById('username-error').textContent = 'Username already taken. Try another username.';
+      document.getElementById('username-error').classList.add('visible');
+    } else {
+      addSystemMessage(`Error: ${err.type} - ${err.message}`);
     }
+    updateConnectionStatus('error');
+  });
 
-    // Join existing room (guest)
-    function joinRoom() {
-      const roomCode = document.getElementById('room-code-input').value.trim();
-      if (!roomCode) {
-        addSystemMessage('Please enter a room code.');
-        return;
+  peer.on('connection', (connection) => {
+    setupConnection(connection);
+    connections.push(connection);
+    const guestUsername = connection.metadata ? connection.metadata.username : 'Guest';
+    addSystemMessage(`${guestUsername} has joined the room!`);
+    updateConnectionStatus('connected');
+
+    // Send current peer list to the new guest
+    const peerList = connections.map(conn => ({
+      peerId: conn.peer,
+      username: conn.metadata ? conn.metadata.username : 'Guest'
+    }));
+    connection.send({
+      type: 'peerList',
+      peers: peerList
+    });
+
+    // Notify other guests about the new peer
+    connections.forEach(conn => {
+      if (conn !== connection && conn.open) {
+        conn.send({
+          type: 'newPeer',
+          peerId: connection.peer,
+          username: guestUsername
+        });
       }
+    });
 
-      // Get username or generate one
-      username = document.getElementById('guest-username').value.trim();
-      if (!username) {
-        username = 'Guest' + Math.floor(Math.random() * 1000);
-      }
+    document.getElementById('setup-card').style.display = 'none';
+    document.getElementById('chat-card').style.display = 'block';
+  });
+}
 
-      document.getElementById('display-username').textContent = username;
+function joinRoom() {
+  const roomCode = document.getElementById('room-code-input').value.trim();
+  if (!roomCode) {
+    addSystemMessage('Please enter a room code.');
+    return;
+  }
 
-      if (peer) {
-        peer.destroy(); // Destroy existing peer if any
-      }
+  username = document.getElementById('guest-username').value.trim();
+  if (!username) {
+    username = 'Guest' + Math.floor(Math.random() * 1000);
+  }
 
-      // Create unique guest ID
-      const guestId = `guest_${username}_${Math.random().toString(36).substring(2, 8)}`;
+  document.getElementById('display-username').textContent = username;
 
-      peer = new Peer(guestId, {
-        config: {
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-        }
-      });
+  if (peer) {
+    peer.destroy();
+  }
 
-      peer.on('open', (id) => {
-        // Connect to host using room code (which is the host's username)
-        conn = peer.connect(roomCode, {
-          metadata: {
-            username: username
+  const guestId = `guest_${username}_${Math.random().toString(36).substring(2, 8)}`;
+  peer = new Peer(guestId, {
+    config: {
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    }
+  });
+
+  peer.on('open', (id) => {
+    const conn = peer.connect(roomCode, {
+      metadata: { username }
+    });
+    connections.push(conn);
+    setupConnection(conn);
+    addSystemMessage(`Joining room ${roomCode}...`);
+    updateConnectionStatus('connecting');
+  });
+
+  peer.on('connection', (connection) => {
+    setupConnection(connection);
+    connections.push(connection);
+    const guestUsername = connection.metadata ? connection.metadata.username : 'Guest';
+    addSystemMessage(`${guestUsername} has connected to you!`);
+    updateConnectionStatus('connected');
+  });
+
+  peer.on('error', (err) => {
+    addSystemMessage(`Error: ${err.type} - ${err.message}`);
+    if (err.type === 'peer-unavailable') {
+      addSystemMessage('Room not found. Check the code and try again.');
+    }
+    updateConnectionStatus('error');
+  });
+}
+
+function setupConnection(connection) {
+  connection.on('open', () => {
+    addSystemMessage('Connection established!');
+    updateConnectionStatus('connected');
+    document.getElementById('setup-card').style.display = 'none';
+    document.getElementById('chat-card').style.display = 'block';
+  });
+
+  connection.on('data', (data) => {
+    if (typeof data === 'object') {
+      if (data.type === 'message') {
+        addReceivedMessage(data.text, data.sender);
+      } else if (data.type === 'system') {
+        addSystemMessage(data.message);
+      } else if (data.type === 'peerList') {
+        // Guest receives list of peers to connect to
+        data.peers.forEach(peerInfo => {
+          if (peerInfo.peerId !== peer.id && !connections.some(c => c.peer === peerInfo.peerId)) {
+            const conn = peer.connect(peerInfo.peerId, {
+              metadata: { username }
+            });
+            connections.push(conn);
+            setupConnection(conn);
           }
         });
-
-        setupConnection();
-        addSystemMessage(`Joining room ${roomCode}...`);
-        updateConnectionStatus('connecting');
-      });
-
-      peer.on('error', (err) => {
-        addSystemMessage(`Error: ${err.type} - ${err.message}`);
-        if (err.type === 'peer-unavailable') {
-          addSystemMessage('Room not found. Check the code and try again.');
+      } else if (data.type === 'newPeer') {
+        // Connect to new peer
+        if (data.peerId !== peer.id && !connections.some(c => c.peer === data.peerId)) {
+          const conn = peer.connect(data.peerId, {
+            metadata: { username }
+          });
+          connections.push(conn);
+          setupConnection(conn);
+          addSystemMessage(`${data.username} has joined the room!`);
         }
-        updateConnectionStatus('error');
-      });
+      } else if (data.type === 'peerLeft') {
+        // Remove peer from connections
+        connections = connections.filter(conn => conn.peer !== data.peerId);
+        addSystemMessage(`${data.username} has left the room.`);
+      }
+    } else {
+      addReceivedMessage(data, connection.metadata?.username || 'Unknown');
     }
+  });
 
-    // Setup data connection for messaging
-    function setupConnection() {
-      conn.on('open', () => {
-        addSystemMessage('Connection established!');
-        updateConnectionStatus('connected');
+  connection.on('close', () => {
+    connections = connections.filter(conn => conn !== connection);
+    addSystemMessage(`${connection.metadata?.username || 'A user'} has disconnected.`);
+    updateConnectionStatus(connections.length > 0 ? 'connected' : 'disconnected');
 
-        // Switch to chat view
-        document.getElementById('setup-card').style.display = 'none';
-        document.getElementById('chat-card').style.display = 'block';
-      });
-
-      conn.on('data', (data) => {
-        if (typeof data === 'object' && data.type === 'system') {
-          addSystemMessage(data.message);
-        } else if (typeof data === 'object' && data.type === 'message') {
-          addReceivedMessage(data.text, data.sender);
-        } else {
-          addReceivedMessage(data, conn.metadata?.username || 'Unknown');
+    // Notify others if host
+    if (isRoomCreator) {
+      connections.forEach(conn => {
+        if (conn.open) {
+          conn.send({
+            type: 'peerLeft',
+            peerId: connection.peer,
+            username: connection.metadata?.username || 'Guest'
+          });
         }
       });
-
-      conn.on('close', () => {
-        addSystemMessage('Connection closed.');
-        updateConnectionStatus('disconnected');
-      });
-
-      conn.on('error', (err) => {
-        addSystemMessage('Connection error: ' + err);
-        updateConnectionStatus('error');
-      });
     }
+  });
 
-    // Leave current room
-    function leaveRoom() {
-      if (conn) {
-        conn.close();
-      }
-      if (peer) {
-        peer.destroy();
-        peer = null;
-      }
+  // lets fix this later, it works now
 
-      // Reset UI
-      document.getElementById('setup-card').style.display = 'block';
-      document.getElementById('chat-card').style.display = 'none';
-      document.querySelector('.messages').innerHTML = '';
-      document.getElementById('room-info').style.display = 'none';
-      document.getElementById('username-error').classList.remove('visible');
-      document.getElementById('host-username').value = '';
-      document.getElementById('guest-username').value = '';
-      document.getElementById('room-code-input').value = '';
+  // connection.on('error', (err) => {
+  //   addSystemMessage('Connection error: ' + err);
+  //   updateConnectionStatus('error');
+  // });
+}
 
-      updateConnectionStatus('disconnected');
-      addSystemMessage('You left the room');
-    }
+function leaveRoom() {
+  connections.forEach(conn => conn.close());
+  if (peer) {
+    peer.destroy();
+    peer = null;
+  }
+  connections = [];
 
-    // Send message
-    function sendMessage() {
-      const message = document.getElementById('message').value.trim();
-      if (!message) return;
+  document.getElementById('setup-card').style.display = 'block';
+  document.getElementById('chat-card').style.display = 'none';
+  document.querySelector('.messages').innerHTML = '';
+  document.getElementById('room-info').style.display = 'none';
+  document.getElementById('username-error').classList.remove('visible');
+  document.getElementById('host-username').value = '';
+  document.getElementById('guest-username').value = '';
+  document.getElementById('room-code-input').value = '';
 
-      if (conn && conn.open) {
-        // Send message with metadata
+  updateConnectionStatus('disconnected');
+  addSystemMessage('You left the room');
+}
+
+function sendMessage() {
+  const message = document.getElementById('message').value.trim();
+  if (!message) return;
+
+  if (connections.length > 0) {
+    connections.forEach(conn => {
+      if (conn.open) {
         conn.send({
           type: 'message',
           text: message,
           sender: username
         });
-
-        addSentMessage(message);
-        document.getElementById('message').value = '';
-      } else {
-        addSystemMessage('Not connected to peer. Please connect first.');
       }
-    }
+    });
+    addSentMessage(message);
+    document.getElementById('message').value = '';
+  } else {
+    addSystemMessage('Not connected to any peers.');
+  }
+}
 
-    // Handle Enter key press
-    function handleKeyPress(event) {
-      if (event.key === 'Enter') {
-        sendMessage();
-      }
-    }
+function handleKeyPress(event) {
+  if (event.key === 'Enter') {
+    sendMessage();
+  }
+}
 
-    // Copy room code to clipboard
-    function copyRoomCode() {
-      const roomCode = document.getElementById('room-code').textContent;
-      if (roomCode && roomCode !== 'Not created yet') {
-        navigator.clipboard.writeText(roomCode)
-          .then(() => {
-            addSystemMessage('Room code copied to clipboard!');
-          })
-          .catch(err => {
-            addSystemMessage('Failed to copy: ' + err);
-          });
-      }
-    }
+function copyRoomCode() {
+  const roomCode = document.getElementById('room-code').textContent;
+  if (roomCode && roomCode !== 'Not created yet') {
+    navigator.clipboard.writeText(roomCode)
+      .then(() => addSystemMessage('Room code copied to clipboard!'))
+      .catch(err => addSystemMessage('Failed to copy: ' + err));
+  }
+}
 
-    // Update connection status indicator
-    function updateConnectionStatus(status) {
-      const statusElement = document.querySelector('.connection-status');
-      const statusTextElement = document.getElementById('connection-text');
+function updateConnectionStatus(status) {
+  const statusElement = document.querySelector('.connection-status');
+  const statusTextElement = document.getElementById('connection-text');
+  statusElement.className = 'connection-status';
 
-      statusElement.className = 'connection-status';
+  switch(status) {
+    case 'connected':
+      statusElement.classList.add('status-connected');
+      statusTextElement.textContent = 'Connected';
+      break;
+    case 'connecting':
+      statusElement.classList.add('status-disconnected');
+      statusTextElement.textContent = 'Connecting...';
+      break;
+    case 'waiting':
+      statusElement.classList.add('status-disconnected');
+      statusTextElement.textContent = 'Waiting for someone to join';
+      break;
+    case 'error':
+      statusElement.classList.add('status-disconnected');
+      statusTextElement.textContent = 'Connection error';
+      break;
+    default:
+      statusElement.classList.add('status-disconnected');
+      statusTextElement.textContent = 'Not connected';
+  }
+}
 
-      switch(status) {
-        case 'connected':
-          statusElement.classList.add('status-connected');
-          statusTextElement.textContent = 'Connected';
-          break;
-        case 'connecting':
-          statusElement.classList.add('status-disconnected');
-          statusTextElement.textContent = 'Connecting...';
-          break;
-        case 'waiting':
-          statusElement.classList.add('status-disconnected');
-          statusTextElement.textContent = 'Waiting for someone to join';
-          break;
-        case 'error':
-          statusElement.classList.add('status-disconnected');
-          statusTextElement.textContent = 'Connection error';
-          break;
-        default:
-          statusElement.classList.add('status-disconnected');
-          statusTextElement.textContent = 'Not connected';
-      }
-    }
+function addSystemMessage(text) {
+  const messagesEl = document.querySelector('.messages');
+  const messageEl = document.createElement('div');
+  messageEl.className = 'system-message';
+  messageEl.textContent = text;
+  messagesEl.appendChild(messageEl);
+  scrollToBottom();
+}
 
-    // Display system message
-    function addSystemMessage(text) {
-      const messagesEl = document.querySelector('.messages');
-      const messageEl = document.createElement('div');
-      messageEl.className = 'system-message';
-      messageEl.textContent = text;
-      messagesEl.appendChild(messageEl);
-      scrollToBottom();
-    }
+function addReceivedMessage(text, senderName) {
+  const messagesEl = document.querySelector('.messages');
+  const messageEl = document.createElement('div');
+  messageEl.className = 'message received';
 
-    // Display received message
-    function addReceivedMessage(text, senderName) {
-      const messagesEl = document.querySelector('.messages');
-      const messageEl = document.createElement('div');
-      messageEl.className = 'message received';
+  if (senderName) {
+    const senderEl = document.createElement('div');
+    senderEl.className = 'sender-name';
+    senderEl.textContent = senderName;
+    messageEl.appendChild(senderEl);
+  }
 
-      // Add sender name if we have it
-      if (senderName) {
-        const senderEl = document.createElement('div');
-        senderEl.className = 'sender-name';
-        senderEl.textContent = senderName;
-        messageEl.appendChild(senderEl);
-      }
+  const contentEl = document.createElement('div');
+  contentEl.textContent = text;
+  messageEl.appendChild(contentEl);
 
-      const contentEl = document.createElement('div');
-      contentEl.textContent = text;
-      messageEl.appendChild(contentEl);
+  const timeEl = document.createElement('div');
+  timeEl.className = 'message-time';
+  timeEl.textContent = getCurrentTime();
+  messageEl.appendChild(timeEl);
 
-      const timeEl = document.createElement('div');
-      timeEl.className = 'message-time';
-      timeEl.textContent = getCurrentTime();
-      messageEl.appendChild(timeEl);
+  messagesEl.appendChild(messageEl);
+  scrollToBottom();
+}
 
-      messagesEl.appendChild(messageEl);
-      scrollToBottom();
-    }
+function addSentMessage(text) {
+  const messagesEl = document.querySelector('.messages');
+  const messageEl = document.createElement('div');
+  messageEl.className = 'message sent';
 
-    // Display sent message
-    function addSentMessage(text) {
-      const messagesEl = document.querySelector('.messages');
-      const messageEl = document.createElement('div');
-      messageEl.className = 'message sent';
+  const contentEl = document.createElement('div');
+  contentEl.textContent = text;
+  messageEl.appendChild(contentEl);
 
-      const contentEl = document.createElement('div');
-      contentEl.textContent = text;
-      messageEl.appendChild(contentEl);
+  const timeEl = document.createElement('div');
+  timeEl.className = 'message-time';
+  timeEl.textContent = getCurrentTime();
+  messageEl.appendChild(timeEl);
 
-      const timeEl = document.createElement('div');
-      timeEl.className = 'message-time';
-      timeEl.textContent = getCurrentTime();
-      messageEl.appendChild(timeEl);
+  messagesEl.appendChild(messageEl);
+  scrollToBottom();
+}
 
-      messagesEl.appendChild(messageEl);
-      scrollToBottom();
-    }
+function getCurrentTime() {
+  const now = new Date();
+  let hours = now.getHours();
+  let minutes = now.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  minutes = minutes < 10 ? '0' + minutes : minutes;
+  return `${hours}:${minutes} ${ampm}`;
+}
 
-    // Get current time for message timestamp
-    function getCurrentTime() {
-      const now = new Date();
-      let hours = now.getHours();
-      let minutes = now.getMinutes();
-      const ampm = hours >= 12 ? 'PM' : 'AM';
+function scrollToBottom() {
+  const container = document.getElementById('messages');
+  container.scrollTop = container.scrollHeight;
+}
 
-      hours = hours % 12;
-      hours = hours ? hours : 12;
-      minutes = minutes < 10 ? '0' + minutes : minutes;
 
-      return `${hours}:${minutes} ${ampm}`;
-    }
-
-    // Scroll to bottom of message container
-    function scrollToBottom() {
-      const container = document.getElementById('messages');
-      container.scrollTop = container.scrollHeight;
-    }
   </script>
 </body>
 </html>
