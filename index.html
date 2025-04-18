@@ -643,6 +643,14 @@
         </button>
       </div>
 
+      <div class="file-share-form" style="margin-top:15px; display:flex; gap:10px;">
+        <input type="file" id="file-input" style="flex:1;">
+        <button class="btn" onclick="sendFile()">
+          <i class="fas fa-upload"></i> Send File
+        </button>
+      </div>
+      <div id="file-progress" style="margin-top:10px; color:var(--accent); display:none;"></div>
+
       <button class="btn" style="margin-top: 10px;" onclick="leaveRoom()">
         <i class="fas fa-sign-out-alt"></i> Leave Room
       </button>
@@ -669,6 +677,9 @@ let audioSharingPeerId = null;
 let audioContext = null;
 let audioAnalyser = null;
 let audioVisualizerInterval = null;
+
+// File sharing variables
+const incomingFiles = {}; // { senderId: {chunks: [], info: {}} }
 
 function switchTab(tabName) {
   document.querySelectorAll('.tab-content').forEach(content => {
@@ -974,6 +985,109 @@ function setupAudioCallEvents(call) {
   });
 }
 
+// File sending
+function sendFile() {
+  const fileInput = document.getElementById('file-input');
+  const file = fileInput.files[0];
+  if (!file) {
+    addSystemMessage('No file selected.');
+    return;
+  }
+
+  const chunkSize = 256 * 1024; // 256KB per chunk for better speed
+  const totalChunks = Math.ceil(file.size / chunkSize);
+  let offset = 0;
+  let chunkIndex = 0;
+
+  document.getElementById('file-progress').style.display = 'block';
+  document.getElementById('file-progress').textContent = `Sending: ${file.name} (0%)`;
+
+  function sendNextChunk() {
+    const reader = new FileReader();
+    const slice = file.slice(offset, offset + chunkSize);
+    reader.onload = function(e) {
+      const chunk = e.target.result;
+      // Send chunk to all peers
+      connections.forEach(conn => {
+        if (conn.open) {
+          // Flow control: wait if buffer is too full
+          if (conn._dc && conn._dc.bufferedAmount > 2 * chunk.byteLength) {
+            setTimeout(() => conn.send({
+              type: 'file-chunk',
+              fileName: file.name,
+              fileType: file.type,
+              totalSize: file.size,
+              chunkIndex,
+              totalChunks,
+              data: chunk
+            }), 10);
+          } else {
+            conn.send({
+              type: 'file-chunk',
+              fileName: file.name,
+              fileType: file.type,
+              totalSize: file.size,
+              chunkIndex,
+              totalChunks,
+              data: chunk
+            });
+          }
+        }
+      });
+      offset += chunkSize;
+      chunkIndex++;
+      const percent = Math.floor((offset / file.size) * 100);
+      document.getElementById('file-progress').textContent = `Sending: ${file.name} (${percent}%)`;
+      if (offset < file.size) {
+        sendNextChunk();
+      } else {
+        document.getElementById('file-progress').textContent = `Sent: ${file.name}`;
+        setTimeout(() => {
+          document.getElementById('file-progress').style.display = 'none';
+        }, 2000);
+      }
+    };
+    reader.readAsArrayBuffer(slice);
+  }
+  sendNextChunk();
+}
+
+// File receiving
+function handleFileChunk(data, sender) {
+  if (!incomingFiles[sender]) {
+    incomingFiles[sender] = {};
+  }
+  const key = data.fileName + data.totalSize;
+  if (!incomingFiles[sender][key]) {
+    incomingFiles[sender][key] = {
+      chunks: [],
+      info: data,
+      received: 0
+    };
+  }
+  const fileObj = incomingFiles[sender][key];
+  fileObj.chunks[data.chunkIndex] = data.data;
+  fileObj.received++;
+
+  // Progress display (optional)
+  addSystemMessage(`Receiving: ${data.fileName} (${fileObj.received}/${data.totalChunks})`);
+
+  if (fileObj.received === data.totalChunks) {
+    // Assemble file
+    const blob = new Blob(fileObj.chunks, { type: data.fileType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = data.fileName;
+    link.textContent = `Download ${data.fileName}`;
+    link.style.display = 'block';
+    addSystemMessage('');
+    document.querySelector('.messages').appendChild(link);
+    scrollToBottom();
+    delete incomingFiles[sender][key];
+  }
+}
+
 function createRoom() {
   username = document.getElementById('host-username').value.trim();
   if (!username) {
@@ -1205,6 +1319,8 @@ function setupConnection(connection) {
           audioSharingPeerId = null;
           addSystemMessage(`${data.username || 'Someone'} stopped sharing audio`);
         }
+      } else if (data.type === 'file-chunk') {
+        handleFileChunk(data, connection.peer);
       }
     } else {
       addReceivedMessage(data, connection.metadata?.username || 'Unknown');
