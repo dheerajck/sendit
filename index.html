@@ -708,11 +708,11 @@ async function startScreenShare() {
 
     // Apply different constraints based on selected option
     if (shareOption === 'entire-screen') {
-      displayMediaOptions = { video: { displaySurface: 'monitor' }, audio: true };
+      displayMediaOptions = { video: { displaySurface: 'monitor' }, audio: true, systemAudio: 'include'};
     } else if (shareOption === 'window') {
-      displayMediaOptions = { video: { displaySurface: 'window' }, audio: true };
+      displayMediaOptions = { video: { displaySurface: 'window' }, audio: true, systemAudio: 'include'};
     } else if (shareOption === 'tab') {
-      displayMediaOptions = { video: { displaySurface: 'browser' }, audio: true };
+      displayMediaOptions = { video: { displaySurface: 'browser' }, audio: true, systemAudio: 'include'};
     }
 
     localStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
