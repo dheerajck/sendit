@@ -513,6 +513,68 @@
       border-radius: 2px;
       transition: height 0.1s ease;
     }
+
+    /* Online Users Panel Styles */
+    .online-users-panel {
+      position: absolute;
+      top: 60px; /* Adjust as needed below user-info */
+      right: -220px; /* Position outside the main card */
+      width: 200px;
+      background-color: var(--bg-secondary);
+      border-radius: var(--border-radius);
+      padding: 15px;
+      box-shadow: var(--card-shadow);
+      max-height: 400px; /* Limit height */
+      overflow-y: auto; /* Add scroll if list is long */
+    }
+
+    .online-users-panel h4 {
+      color: var(--accent);
+      margin-bottom: 10px;
+      font-size: 1rem;
+      border-bottom: 1px solid var(--bg-tertiary);
+      padding-bottom: 5px;
+      display: flex;
+      align-items: center;
+    }
+    .online-users-panel h4 i {
+       margin-right: 8px;
+    }
+
+
+    .online-users-panel ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .online-users-panel li {
+      padding: 5px 0;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      border-bottom: 1px dashed var(--bg-tertiary);
+    }
+     .online-users-panel li:last-child {
+       border-bottom: none;
+     }
+
+    .online-users-panel li .you-indicator {
+      font-style: italic;
+      color: var(--success);
+      font-size: 0.8rem;
+      margin-left: 5px;
+    }
+
+
+    @media (max-width: 1050px) { /* Adjust breakpoint as needed */
+      .online-users-panel {
+        position: static; /* Stack below on smaller screens */
+        width: 100%;
+        margin-top: 20px;
+        right: auto;
+        max-height: 150px; /* Adjust height for stacked view */
+      }
+    }
   </style>
 </head>
 <body>
@@ -575,7 +637,16 @@
       </div>
     </div>
 
-    <div id="chat-card" class="card" style="display: none;">
+    <div id="chat-card" class="card" style="display: none; position: relative;"> <!-- Added position: relative -->
+
+      <!-- Online Users Panel -->
+      <div id="online-users-panel" class="online-users-panel" style="display: none;"> <!-- Initially hidden -->
+        <h4><i class="fas fa-users"></i> Online Users</h4>
+        <ul id="online-users-list">
+          <!-- User list will be populated here -->
+        </ul>
+      </div>
+
       <div id="user-info" class="user-info">
         <div class="user-avatar">
           <i class="fas fa-user"></i>
@@ -665,6 +736,7 @@ let username = '';
 let isRoomCreator = false;
 let localStream = null;
 let shareOption = 'entire-screen';
+let peersInfo = []; // <-- Add this line: Stores { peerId: string, username: string }
 
 // Screen share variables
 let isScreenSharing = false;
@@ -761,7 +833,7 @@ async function startScreenShare() {
   }
 }
 
-function stopScreenShare() {
+function stopScreenShare(broadcast = true) {
   if (!isScreenSharing || !localStream) return;
 
   // Stop all tracks
@@ -779,20 +851,22 @@ function stopScreenShare() {
   isScreenSharing = false;
 
   // Notify all peers that screen sharing has stopped
-  connections.forEach(conn => {
-    if (conn.open) {
-      conn.send({
-        type: 'screenShareStopped',
-        peerId: peer.id,
-        username: username
-      });
-    }
-  });
-
-  addSystemMessage('You stopped sharing your screen');
+  if (broadcast) {
+    connections.forEach(conn => {
+      if (conn.open) {
+        conn.send({
+          type: 'screenShareStopped',
+          peerId: peer.id,
+          username: username
+        });
+      }
+    });
+    addSystemMessage('You stopped sharing your screen');
+  }
+   screenSharingPeerId = null; // Clear regardless of broadcast
 }
 
-// Setup call events for both initiator and receiver
+// Setup call events for both initiator and receiver (SCREEN)
 function setupCallEvents(call) {
   call.on('stream', (remoteStream) => {
     // Display the remote stream if it's a screen share
@@ -824,6 +898,43 @@ function setupCallEvents(call) {
   });
 }
 
+// --- Add this function ---
+// Setup call events for both initiator and receiver (AUDIO)
+function setupAudioCallEvents(call) {
+  call.on('stream', (remoteStream) => {
+    // Play the remote audio stream
+    if (call.metadata?.type === 'audioShare') {
+      const sharedAudio = document.getElementById('shared-audio');
+      document.getElementById('audio-placeholder').style.display = 'none';
+      sharedAudio.style.display = 'block'; // Make sure audio element is visible if needed for controls
+      sharedAudio.srcObject = remoteStream;
+      audioSharingPeerId = call.peer; // Track who is sharing audio
+
+      // Optional: Create visualizer for received audio (more complex)
+      // createReceivedAudioVisualizer(remoteStream);
+
+      addSystemMessage(`${call.metadata.username || 'Someone'} is sharing their audio`);
+    }
+  });
+
+  call.on('close', () => {
+    // Clean up when the audio call ends
+    if (call.metadata?.type === 'audioShare' && audioSharingPeerId === call.peer) {
+      cleanupAudioShare(call.peer, call.metadata.username || 'Someone', 'stopped sharing');
+    }
+  });
+
+  call.on('error', (err) => {
+    console.error('Audio call error:', err);
+    addSystemMessage(`Audio sharing error with ${call.metadata.username || 'peer'}: ${err.message}`);
+    // Clean up on error as well
+    if (call.metadata?.type === 'audioShare' && audioSharingPeerId === call.peer) {
+      cleanupAudioShare(call.peer, call.metadata.username || 'Someone', 'had an error');
+    }
+  });
+}
+// --- End of added function ---
+
 async function startAudioShare() {
   if (isAudioSharing) return;
 
@@ -834,15 +945,15 @@ async function startAudioShare() {
     document.getElementById('audio-sharing-notice').style.display = 'flex';
     document.getElementById('audio-placeholder').style.display = 'none';
 
-    // Create audio visualizer
-    createAudioVisualizer();
+    // Create audio visualizer for local stream
+    createLocalAudioVisualizer(); // Renamed for clarity
 
     // Toggle buttons
     document.getElementById('start-audio-btn').style.display = 'none';
     document.getElementById('stop-audio-btn').style.display = 'inline-flex';
 
     isAudioSharing = true;
-    audioSharingPeerId = peer.id;
+    audioSharingPeerId = peer.id; // Mark self as sharing
 
     // Create an audio call to EACH peer
     connections.forEach(conn => {
@@ -856,7 +967,7 @@ async function startAudioShare() {
 
         // Then call them with the audio stream
         const call = peer.call(conn.peer, audioStream, { metadata: { type: 'audioShare', username } });
-        setupAudioCallEvents(call);
+        setupAudioCallEvents(call); // Setup handlers for the outgoing call object
       }
     });
 
@@ -867,7 +978,66 @@ async function startAudioShare() {
   }
 }
 
-function stopAudioShare() {
+// --- Rename createAudioVisualizer for clarity ---
+function createLocalAudioVisualizer() {
+    if (!audioStream || audioContext) return; // Don't create if no stream or context exists
+
+    try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        audioAnalyser = audioContext.createAnalyser();
+        const source = audioContext.createMediaStreamSource(audioStream);
+        source.connect(audioAnalyser);
+        // Note: We don't connect analyser to destination for local visualization
+
+        audioAnalyser.fftSize = 128; // Smaller size for fewer bars
+        const bufferLength = audioAnalyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        const visualizerContainer = document.getElementById('audio-container'); // Place inside the container
+        let visualizer = document.getElementById('audio-visualizer');
+        if (visualizer) visualizer.remove(); // Remove old one if exists
+
+        visualizer = document.createElement('div');
+        visualizer.id = 'audio-visualizer';
+        visualizer.className = 'audio-visualizer';
+        visualizerContainer.insertBefore(visualizer, visualizerContainer.firstChild); // Add visualizer at the top
+
+        for (let i = 0; i < bufferLength; i++) {
+            const bar = document.createElement('div');
+            bar.className = 'audio-bar';
+            visualizer.appendChild(bar);
+        }
+
+        const bars = visualizer.getElementsByClassName('audio-bar');
+
+        function drawVisualizer() {
+            if (!audioContext || !audioAnalyser) {
+                clearInterval(audioVisualizerInterval);
+                return;
+            }
+            audioAnalyser.getByteFrequencyData(dataArray);
+            for (let i = 0; i < bufferLength; i++) {
+                const barHeight = Math.max(10, (dataArray[i] / 255) * 60); // Min height 10, max 60
+                if (bars[i]) {
+                    bars[i].style.height = `${barHeight}px`;
+                }
+            }
+        }
+
+        if (audioVisualizerInterval) clearInterval(audioVisualizerInterval);
+        audioVisualizerInterval = setInterval(drawVisualizer, 50); // Update rate
+
+    } catch (e) {
+        console.error("Error creating local audio visualizer:", e);
+        addSystemMessage("Could not create audio visualizer.");
+        if (audioContext) audioContext.close().catch(err => console.error("Error closing context:", err));
+        audioContext = null;
+        audioAnalyser = null;
+    }
+}
+// --- End of renamed function ---
+
+function stopAudioShare(broadcast = true) {
   if (!isAudioSharing || !audioStream) return;
 
   // Stop all tracks
@@ -877,7 +1047,7 @@ function stopAudioShare() {
   // Clean up audio context if it exists
   if (audioContext) {
     clearInterval(audioVisualizerInterval);
-    audioContext.close();
+    audioContext.close().catch(e => console.error("Error closing audio context:", e));
     audioContext = null;
     audioAnalyser = null;
   }
@@ -885,6 +1055,7 @@ function stopAudioShare() {
   // Update UI
   document.getElementById('audio-sharing-notice').style.display = 'none';
   document.getElementById('audio-placeholder').style.display = 'flex';
+  document.getElementById('audio-placeholder').innerHTML = '<div>No audio is being shared</div>'; // Reset placeholder text
   document.getElementById('start-audio-btn').style.display = 'inline-flex';
   document.getElementById('stop-audio-btn').style.display = 'none';
 
@@ -897,93 +1068,21 @@ function stopAudioShare() {
   isAudioSharing = false;
 
   // Notify all peers that audio sharing has stopped
-  connections.forEach(conn => {
-    if (conn.open) {
-      conn.send({
-        type: 'audioShareStopped',
-        peerId: peer.id,
-        username: username
-      });
-    }
-  });
-
-  addSystemMessage('You stopped sharing your audio');
-}
-
-function createAudioVisualizer() {
-  // Create visualizer container
-  const placeholder = document.getElementById('audio-placeholder');
-  placeholder.innerHTML = '';
-
-  const visualizer = document.createElement('div');
-  visualizer.id = 'audio-visualizer';
-  visualizer.className = 'audio-visualizer';
-  placeholder.appendChild(visualizer);
-  placeholder.style.display = 'flex';
-
-  // Create audio bars for visualization
-  const barsCount = 20;
-  for (let i = 0; i < barsCount; i++) {
-    const bar = document.createElement('div');
-    bar.className = 'audio-bar';
-    visualizer.appendChild(bar);
+  if (broadcast) {
+    connections.forEach(conn => {
+      if (conn.open) {
+        conn.send({
+          type: 'audioShareStopped',
+          peerId: peer.id,
+          username: username
+        });
+      }
+    });
+    addSystemMessage('You stopped sharing your audio');
   }
-
-  // Set up audio context for analyzing audio
-  audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const source = audioContext.createMediaStreamSource(audioStream);
-  audioAnalyser = audioContext.createAnalyser();
-  audioAnalyser.fftSize = 64;
-  source.connect(audioAnalyser);
-
-  const bufferLength = audioAnalyser.frequencyBinCount;
-  const dataArray = new Uint8Array(bufferLength);
-
-  // Update visualizer at intervals
-  audioVisualizerInterval = setInterval(() => {
-    audioAnalyser.getByteFrequencyData(dataArray);
-    const bars = document.querySelectorAll('.audio-bar');
-
-    for (let i = 0; i < bars.length; i++) {
-      const index = Math.floor(i * (bufferLength / bars.length));
-      const value = dataArray[index];
-      const height = Math.max(5, value / 2); // Scale the height
-      bars[i].style.height = `${height}px`;
-    }
-  }, 100);
+  audioSharingPeerId = null; // Clear regardless of broadcast
 }
 
-// Setup call events specifically for audio
-function setupAudioCallEvents(call) {
-  call.on('stream', (remoteStream) => {
-    // Display the remote audio if it's an audio share
-    if (call.metadata?.type === 'audioShare') {
-      const sharedAudio = document.getElementById('shared-audio');
-      document.getElementById('audio-placeholder').style.display = 'none';
-      sharedAudio.style.display = 'block';
-      sharedAudio.srcObject = remoteStream;
-      audioSharingPeerId = call.peer;
-
-      addSystemMessage(`${call.metadata.username || 'Someone'} is sharing their audio`);
-    }
-  });
-
-  call.on('close', () => {
-    if (call.metadata?.type === 'audioShare' && audioSharingPeerId === call.peer) {
-      document.getElementById('shared-audio').style.display = 'none';
-      document.getElementById('shared-audio').srcObject = null;
-      document.getElementById('audio-placeholder').style.display = 'flex';
-      audioSharingPeerId = null;
-
-      addSystemMessage(`${call.metadata.username || 'Someone'} stopped sharing their audio`);
-    }
-  });
-
-  call.on('error', (err) => {
-    console.error('Audio call error:', err);
-    addSystemMessage('Audio sharing error: ' + err.message);
-  });
-}
 
 // File sending
 function sendFile() {
@@ -1053,38 +1152,96 @@ function sendFile() {
 }
 
 // File receiving
-function handleFileChunk(data, sender) {
-  if (!incomingFiles[sender]) {
-    incomingFiles[sender] = {};
+function handleFileChunk(data, senderId) { // <-- Use senderId parameter
+  if (!incomingFiles[senderId]) {
+    incomingFiles[senderId] = {};
   }
-  const key = data.fileName + data.totalSize;
-  if (!incomingFiles[sender][key]) {
-    incomingFiles[sender][key] = {
+  const key = data.fileName + data.totalSize; // Use filename + size as key for a specific file from a sender
+  if (!incomingFiles[senderId][key]) {
+    incomingFiles[senderId][key] = {
       chunks: [],
-      info: data,
-      received: 0
+      info: { // Store file info separately
+         fileName: data.fileName,
+         fileType: data.fileType,
+         totalSize: data.totalSize,
+         totalChunks: data.totalChunks
+      },
+      receivedChunks: 0,
+      receivedSize: 0
     };
+     addSystemMessage(`Receiving file: ${data.fileName} from ${peersInfo.find(p=>p.peerId === senderId)?.username || 'user'}...`);
   }
-  const fileObj = incomingFiles[sender][key];
-  fileObj.chunks[data.chunkIndex] = data.data;
-  fileObj.received++;
 
-  // Progress display (optional)
-  addSystemMessage(`Receiving: ${data.fileName} (${fileObj.received}/${data.totalChunks})`);
+  const fileObj = incomingFiles[senderId][key];
 
-  if (fileObj.received === data.totalChunks) {
-    // Assemble file
-    const blob = new Blob(fileObj.chunks, { type: data.fileType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = data.fileName;
-    link.textContent = `Download ${data.fileName}`;
-    link.style.display = 'block';
-    addSystemMessage('');
-    document.querySelector('.messages').appendChild(link);
-    scrollToBottom();
-    delete incomingFiles[sender][key];
+  // Only store chunk if not already received (simple check)
+  if (!fileObj.chunks[data.chunkIndex]) {
+      fileObj.chunks[data.chunkIndex] = data.data;
+      fileObj.receivedChunks++;
+      fileObj.receivedSize += data.data.byteLength;
+
+      // Progress display
+      const percent = Math.floor((fileObj.receivedSize / fileObj.info.totalSize) * 100);
+      // Update a dedicated progress element or use system messages less frequently
+      // Example: updateProgressUI(senderId, key, percent);
+      if (fileObj.receivedChunks % 10 === 0 || fileObj.receivedChunks === fileObj.info.totalChunks) { // Update progress less often
+         addSystemMessage(`Receiving ${fileObj.info.fileName}: ${percent}% (${fileObj.receivedChunks}/${fileObj.info.totalChunks})`);
+      }
+
+
+      if (fileObj.receivedChunks === fileObj.info.totalChunks) {
+        // Ensure all chunks are present (check for gaps)
+        let complete = true;
+        for(let i = 0; i < fileObj.info.totalChunks; i++) {
+            if (!fileObj.chunks[i]) {
+                complete = false;
+                console.error(`Missing chunk ${i} for file ${fileObj.info.fileName} from ${senderId}`);
+                addSystemMessage(`Error receiving ${fileObj.info.fileName}: Missing chunk ${i}. Please ask sender to resend.`);
+                // TODO: Implement chunk request logic if needed
+                break;
+            }
+        }
+
+        if (complete) {
+            // Assemble file
+            addSystemMessage(`Assembling ${fileObj.info.fileName}...`);
+            try {
+                const blob = new Blob(fileObj.chunks, { type: fileObj.info.fileType });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = fileObj.info.fileName;
+
+                const icon = document.createElement('i');
+                icon.className = 'fas fa-download';
+                link.appendChild(icon);
+                link.appendChild(document.createTextNode(` Download ${fileObj.info.fileName} (${(fileObj.info.totalSize / 1024 / 1024).toFixed(2)} MB)`));
+
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message system-message'; // Style as a system message or custom file message
+                messageDiv.appendChild(link);
+
+                document.querySelector('.messages').appendChild(messageDiv);
+                scrollToBottom();
+                addSystemMessage(`File ${fileObj.info.fileName} received successfully!`);
+            } catch (error) {
+                console.error("Error creating blob or download link:", error);
+                addSystemMessage(`Failed to process received file ${fileObj.info.fileName}.`);
+            } finally {
+                 // Clean up memory
+                 delete incomingFiles[senderId][key];
+                 if (Object.keys(incomingFiles[senderId]).length === 0) {
+                     delete incomingFiles[senderId];
+                 }
+            }
+        } else {
+             // Handle incomplete file (e.g., notify user, maybe delete partial data)
+             addSystemMessage(`File ${fileObj.info.fileName} is incomplete. Cannot assemble.`);
+             // Optionally delete: delete incomingFiles[senderId][key];
+        }
+      }
+  } else {
+     console.warn(`Received duplicate chunk ${data.chunkIndex} for ${data.fileName} from ${senderId}`);
   }
 }
 
@@ -1095,14 +1252,18 @@ function createRoom() {
     document.getElementById('username-error').classList.add('visible');
     return;
   }
+  // Clear previous error
+  document.getElementById('username-error').classList.remove('visible');
 
   isRoomCreator = true;
 
   if (peer) {
     peer.destroy();
   }
+  peersInfo = []; // Reset peers list
+  connections = []; // Reset connections
 
-  const roomCode = username;
+  const roomCode = username; // Use username as room code for simplicity here
   peer = new Peer(roomCode, {
     config: {
       iceServers: [
@@ -1118,12 +1279,26 @@ function createRoom() {
     document.getElementById('display-username').textContent = username;
     addSystemMessage(`Room created! Your room code: ${roomCode}`);
     updateConnectionStatus('waiting');
+
+    // Add host to the list
+    peersInfo = [{ peerId: id, username: username }];
+    updateOnlineUsersList(); // Update UI
+
+    document.getElementById('setup-card').style.display = 'none'; // Hide setup
+    document.getElementById('chat-card').style.display = 'block'; // Show chat
   });
 
   peer.on('error', (err) => {
     if (err.type === 'unavailable-id') {
-      document.getElementById('username-error').textContent = 'Username already taken. Try another username.';
+      document.getElementById('username-error').textContent = 'Username already taken. Try another.';
       document.getElementById('username-error').classList.add('visible');
+      // Reset state if creation failed
+      if (peer) peer.destroy();
+      peer = null;
+      peersInfo = [];
+      updateOnlineUsersList();
+      document.getElementById('setup-card').style.display = 'block';
+      document.getElementById('chat-card').style.display = 'none';
     } else {
       addSystemMessage(`Error: ${err.type} - ${err.message}`);
     }
@@ -1131,35 +1306,83 @@ function createRoom() {
   });
 
   peer.on('connection', (connection) => {
-    setupConnection(connection);
-    connections.push(connection);
-    const guestUsername = connection.metadata ? connection.metadata.username : 'Guest';
-    addSystemMessage(`${guestUsername} has joined the room!`);
-    updateConnectionStatus('connected');
+    // Check if already connected to this peer
+     if (connections.some(c => c.peer === connection.peer)) {
+        connection.close();
+        return;
+     }
 
-    // Send current peer list to the new guest
-    const peerList = connections.map(conn => ({
-      peerId: conn.peer,
-      username: conn.metadata ? conn.metadata.username : 'Guest'
-    }));
-    connection.send({
-      type: 'peerList',
-      peers: peerList
-    });
+    const guestUsername = connection.metadata?.username || 'Guest';
+    const guestPeerId = connection.peer;
 
-    // Notify other guests about the new peer
-    connections.forEach(conn => {
-      if (conn !== connection && conn.open) {
-        conn.send({
-          type: 'newPeer',
-          peerId: connection.peer,
-          username: guestUsername
+    // Add guest to host's list *before* setting up handlers
+    // to ensure the list is up-to-date when sending
+    if (!peersInfo.some(p => p.peerId === guestPeerId)) {
+        peersInfo.push({ peerId: guestPeerId, username: guestUsername });
+        updateOnlineUsersList(); // Update host's UI immediately
+    }
+
+
+    connection.on('open', () => {
+        // Send the current full list of peers to the new guest
+        connection.send({
+          type: 'peerList',
+          peers: peersInfo // Send the updated list
         });
-      }
+
+        // Notify *other* existing peers about the new guest (using peerList is better)
+        broadcastPeerList(); // Send updated list to everyone
+
+        // Now add the connection and set it up
+        if (!connections.some(c => c.peer === connection.peer)) {
+            connections.push(connection);
+        }
+        setupConnection(connection); // Setup handlers
+        addSystemMessage(`${guestUsername} has joined the room!`);
+        updateConnectionStatus('connected');
     });
 
-    document.getElementById('setup-card').style.display = 'none';
-    document.getElementById('chat-card').style.display = 'block';
+    // --- Add close handler specific to host's perspective ---
+    connection.on('close', () => {
+        const closedPeerInfo = peersInfo.find(p => p.peerId === connection.peer);
+        const closedUsername = closedPeerInfo?.username || 'A user';
+        addSystemMessage(`${closedUsername} (${connection.peer}) has left the room.`);
+
+        // Remove from host's connections array
+        connections = connections.filter(conn => conn.peer !== connection.peer);
+        // Remove from host's peersInfo array
+        peersInfo = peersInfo.filter(p => p.peerId !== connection.peer);
+        updateOnlineUsersList(); // Update host's UI
+
+        // Broadcast the updated list to all remaining peers
+        broadcastPeerList();
+
+        updateConnectionStatus(connections.length > 0 ? 'connected' : 'waiting');
+
+        // Clean up media if the disconnected peer was sharing
+        cleanupMediaForPeer(connection.peer, closedUsername);
+    });
+
+    // --- Add error handler specific to host's perspective ---
+    connection.on('error', (err) => {
+        const errorPeerInfo = peersInfo.find(p => p.peerId === connection.peer);
+        const errorUsername = errorPeerInfo?.username || 'A user';
+        addSystemMessage(`Connection error with ${errorUsername} (${connection.peer}): ${err.type}. Removing user.`);
+
+        // Remove from host's connections array
+        connections = connections.filter(conn => conn.peer !== connection.peer);
+        // Remove from host's peersInfo array
+        peersInfo = peersInfo.filter(p => p.peerId !== connection.peer);
+        updateOnlineUsersList(); // Update host's UI
+
+        // Broadcast the updated list to all remaining peers
+        broadcastPeerList();
+
+        updateConnectionStatus(connections.length > 0 ? 'connected' : 'waiting');
+        cleanupMediaForPeer(connection.peer, errorUsername);
+    });
+    // --- End of host-specific handlers ---
+
   });
 
   // Handle incoming calls (for screen sharing and audio sharing)
@@ -1169,21 +1392,40 @@ function createRoom() {
 
     if (callType === 'screenShare' || callType === 'audioShare') {
       // Answer without sending a stream back for screen and audio shares
-      call.answer();
+      call.answer(); // Answer the call
 
       if (callType === 'screenShare') {
-        setupCallEvents(call);
+        setupCallEvents(call); // Setup for screen share stream
       } else if (callType === 'audioShare') {
-        setupAudioCallEvents(call);
+        setupAudioCallEvents(call); // Setup for audio share stream
       }
+    } else {
+       console.warn("Received unknown call type:", callType);
+       // Optionally reject or ignore
     }
   });
 }
 
+// --- Add a helper function for the host to broadcast the list ---
+function broadcastPeerList() {
+    if (!isRoomCreator) return; // Only host broadcasts the full list
+
+    connections.forEach(conn => {
+        if (conn.open) {
+            conn.send({
+                type: 'peerList',
+                peers: peersInfo
+            });
+        }
+    });
+    console.log("Host broadcasted updated peer list:", peersInfo);
+}
+// --- End of helper function ---
+
 function joinRoom() {
   const roomCode = document.getElementById('room-code-input').value.trim();
   if (!roomCode) {
-    addSystemMessage('Please enter a room code.');
+    addSystemMessage('Please enter a room code.'); // Consider adding UI feedback too
     return;
   }
 
@@ -1197,10 +1439,12 @@ function joinRoom() {
   if (peer) {
     peer.destroy();
   }
+  peersInfo = []; // Reset peers list
+  connections = []; // Reset connections
 
-  // Generate a random unique ID for this guest to prevent collisions
-  const guestId = `guest_${username}_${Math.random().toString(36).substring(2, 8)}`;
-  peer = new Peer(guestId, {
+  // Use a unique ID for the guest to avoid collisions if multiple guests have the same name
+  const guestPeerId = `guest_${username}_${Math.random().toString(16).substring(2, 8)}`;
+  peer = new Peer(guestPeerId, {
     config: {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -1210,25 +1454,32 @@ function joinRoom() {
   });
 
   peer.on('open', (id) => {
-    const conn = peer.connect(roomCode, {
-      metadata: { username }
-    });
-    connections.push(conn);
-    setupConnection(conn);
-    addSystemMessage(`Joining room ${roomCode}...`);
+    addSystemMessage(`Attempting to join room: ${roomCode}...`);
     updateConnectionStatus('connecting');
+
+    // Connect to the host (identified by roomCode/host username)
+    const hostConnection = peer.connect(roomCode, {
+      metadata: { username: username },
+      reliable: true // Ensure reliable connection for initial setup messages
+    });
+
+    // Setup handlers specifically for the host connection first
+    setupHostConnection(hostConnection);
+
   });
 
+   // Handle direct connections from other peers (initiated by host or other peers based on peerList)
   peer.on('connection', (connection) => {
-    // Only add if not already in connections
-    if (!connections.some(c => c.peer === connection.peer)) {
-      setupConnection(connection);
-      connections.push(connection);
-      const guestUsername = connection.metadata ? connection.metadata.username : 'Guest';
-      addSystemMessage(`${guestUsername} has connected to you!`);
-      updateConnectionStatus('connected');
-    }
+     // Avoid connecting to self or duplicates
+     if (connection.peer === peer.id || connections.some(c => c.peer === connection.peer)) {
+        connection.close();
+        return;
+     }
+     console.log(`Incoming connection from peer: ${connection.peer}`);
+     connections.push(connection); // Add to general connections list
+     setupConnection(connection); // Use the general setup
   });
+
 
   // Handle incoming calls (for screen sharing and audio sharing)
   peer.on('call', (call) => {
@@ -1237,163 +1488,383 @@ function joinRoom() {
 
     if (callType === 'screenShare' || callType === 'audioShare') {
       // Answer without sending a stream back for screen and audio shares
-      call.answer();
+      call.answer(); // Answer the call
 
       if (callType === 'screenShare') {
-        setupCallEvents(call);
+        setupCallEvents(call); // Setup for screen share stream
       } else if (callType === 'audioShare') {
-        setupAudioCallEvents(call);
+        setupAudioCallEvents(call); // Setup for audio share stream
       }
+    } else {
+       console.warn("Received unknown call type:", callType);
+       // Optionally reject or ignore
     }
   });
 
   peer.on('error', (err) => {
     addSystemMessage(`Error: ${err.type} - ${err.message}`);
     if (err.type === 'peer-unavailable') {
-      addSystemMessage('Room not found. Check the code and try again.');
+      addSystemMessage(`Could not connect to room "${roomCode}". Check the code or the host might not be available.`);
     }
     updateConnectionStatus('error');
+    // Clean up if connection failed
+    if(peer) peer.destroy();
+    peer = null;
+    peersInfo = [];
+    updateOnlineUsersList();
+    document.getElementById('setup-card').style.display = 'block';
+    document.getElementById('chat-card').style.display = 'none';
   });
 }
 
+// Special setup for the initial connection *to the host* by a guest
+function setupHostConnection(hostConnection) {
+    hostConnection.on('open', () => {
+        addSystemMessage('Connected to host! Waiting for peer list...');
+        updateConnectionStatus('connected'); // Tentative status
+        document.getElementById('setup-card').style.display = 'none';
+        document.getElementById('chat-card').style.display = 'block';
+        // Add host connection to the list *only if not already present*
+        if (!connections.some(c => c.peer === hostConnection.peer)) {
+            connections.push(hostConnection);
+        }
+    });
+
+    hostConnection.on('data', (data) => {
+        if (data.type === 'peerList') {
+            // This is the primary way guests get the list
+            const isInitialList = peersInfo.length === 0;
+            addSystemMessage(`Received peer list update from host.`);
+            peersInfo = data.peers; // Update local list
+            updateOnlineUsersList(); // Update guest's UI
+
+            // On initial list receipt, connect to other peers
+            if (isInitialList) {
+                peersInfo.forEach(pInfo => {
+                    // Don't connect to self or the host (already connected)
+                    if (pInfo.peerId !== peer.id && pInfo.peerId !== hostConnection.peer && !connections.some(c => c.peer === pInfo.peerId)) {
+                        addSystemMessage(`Connecting to peer: ${pInfo.username}...`);
+                        const peerConn = peer.connect(pInfo.peerId, {
+                            metadata: { username: username },
+                            reliable: true
+                        });
+                        // Add connection *only if not already present*
+                        if (!connections.some(c => c.peer === peerConn.peer)) {
+                            connections.push(peerConn);
+                        }
+                        setupConnection(peerConn); // Use general setup for peer-to-peer connections
+                    }
+                });
+            }
+        } else {
+             // Handle other data from host using the general handler
+             handleConnectionData(data, hostConnection);
+        }
+    });
+
+    hostConnection.on('close', () => {
+        addSystemMessage('Disconnected from host. Leaving room.');
+        leaveRoom(); // Or implement reconnection logic
+    });
+
+    hostConnection.on('error', (err) => {
+        addSystemMessage(`Host connection error: ${err.type}`);
+        leaveRoom(); // Or implement reconnection logic
+    });
+}
+
+
+// General setup for any connection (host-guest, guest-guest)
+// REMOVE the close/error handlers from here as they are handled specifically
+// for host connection and host's perspective on guest connections.
+// Guest-to-guest connection close/error doesn't need to trigger list updates,
+// as the host's broadcast is the source of truth.
 function setupConnection(connection) {
   connection.on('open', () => {
-    addSystemMessage('Connection established!');
-    updateConnectionStatus('connected');
-    document.getElementById('setup-card').style.display = 'none';
-    document.getElementById('chat-card').style.display = 'block';
+    const peerUsername = connection.metadata?.username || peersInfo.find(p => p.peerId === connection.peer)?.username || 'A user';
+    addSystemMessage(`Connection with ${peerUsername} (${connection.peer}) established.`);
   });
 
   connection.on('data', (data) => {
-    if (typeof data === 'object') {
-      if (data.type === 'message') {
-        addReceivedMessage(data.text, data.sender);
-      } else if (data.type === 'system') {
-        addSystemMessage(data.message);
-      } else if (data.type === 'peerList') {
-        // Guest receives list of peers to connect to
-        data.peers.forEach(peerInfo => {
-          if (peerInfo.peerId !== peer.id && !connections.some(c => c.peer === peerInfo.peerId)) {
-            const conn = peer.connect(peerInfo.peerId, {
-              metadata: { username }
-            });
-            connections.push(conn);
-            setupConnection(conn);
-          }
-        });
-      } else if (data.type === 'newPeer') {
-        // Connect to new peer
-        if (data.peerId !== peer.id && !connections.some(c => c.peer === data.peerId)) {
-          const conn = peer.connect(data.peerId, {
-            metadata: { username }
-          });
-          connections.push(conn);
-          setupConnection(conn);
-          addSystemMessage(`${data.username} has joined the room!`);
-        }
-      } else if (data.type === 'peerLeft') {
-        // Remove peer from connections
-        connections = connections.filter(conn => conn.peer !== data.peerId);
-        addSystemMessage(`${data.username} has left the room.`);
-      } else if (data.type === 'screenShareStarting') {
-        addSystemMessage(`${data.username || 'Someone'} is starting to share their screen...`);
-        // No need to do anything else here - the actual media will come through a call
-      } else if (data.type === 'screenShareStopped') {
-        // Only update if this peer was the one sharing
-        if (screenSharingPeerId === data.peerId) {
-          document.getElementById('shared-screen').style.display = 'none';
-          document.getElementById('shared-screen').srcObject = null;
-          document.getElementById('screen-placeholder').style.display = 'flex';
-          screenSharingPeerId = null;
-          addSystemMessage(`${data.username || 'Someone'} stopped sharing their screen`);
-        }
-      } else if (data.type === 'audioShareStarting') {
-        addSystemMessage(`${data.username || 'Someone'} is starting to share audio...`);
-        // No need to do anything else here - the actual media will come through a call
-      } else if (data.type === 'audioShareStopped') {
-        // Only update if this peer was the one sharing
-        if (audioSharingPeerId === data.peerId) {
-          document.getElementById('shared-audio').style.display = 'none';
-          document.getElementById('shared-audio').srcObject = null;
-          document.getElementById('audio-placeholder').style.display = 'flex';
-          audioSharingPeerId = null;
-          addSystemMessage(`${data.username || 'Someone'} stopped sharing audio`);
-        }
-      } else if (data.type === 'file-chunk') {
-        handleFileChunk(data, connection.peer);
-      }
-    } else {
-      addReceivedMessage(data, connection.metadata?.username || 'Unknown');
-    }
+     handleConnectionData(data, connection); // Use a shared data handler
   });
 
+  // Guest-to-guest close/error handling (optional, mainly for debugging or specific features)
   connection.on('close', () => {
-    connections = connections.filter(conn => conn !== connection);
-    addSystemMessage(`${connection.metadata?.username || 'A user'} has disconnected.`);
-    updateConnectionStatus(connections.length > 0 ? 'connected' : 'disconnected');
+      const closedPeerInfo = peersInfo.find(p => p.peerId === connection.peer);
+      const closedUsername = closedPeerInfo?.username || 'A user';
+      // Don't update list here, rely on host broadcast
+      console.log(`Direct connection with ${closedUsername} (${connection.peer}) closed.`);
+      // Remove from connections array if needed for other logic
+      connections = connections.filter(conn => conn.peer !== connection.peer);
+      // Optionally cleanup media if needed, though host broadcast should handle list update
+      // cleanupMediaForPeer(connection.peer, closedUsername);
+  });
 
-    // Notify others if host
-    if (isRoomCreator) {
-      connections.forEach(conn => {
-        if (conn.open) {
-          conn.send({
-            type: 'peerLeft',
-            peerId: connection.peer,
-            username: connection.metadata?.username || 'Guest'
-          });
-        }
-      });
+   connection.on('error', (err) => {
+      const errorPeerInfo = peersInfo.find(p => p.peerId === connection.peer);
+      const errorUsername = errorPeerInfo?.username || 'A user';
+      // Don't update list here, rely on host broadcast
+      console.error(`Direct connection error with ${errorUsername} (${connection.peer}): ${err.type}`);
+      connections = connections.filter(conn => conn.peer !== connection.peer);
+      // Optionally cleanup media
+      // cleanupMediaForPeer(connection.peer, errorUsername);
+   });
+}
+
+// Shared handler for data received on any connection
+function handleConnectionData(data, connection) {
+    const senderPeerId = connection.peer;
+    const senderInfo = peersInfo.find(p => p.peerId === senderPeerId);
+    const senderName = data.sender || senderInfo?.username || connection.metadata?.username || 'Unknown';
+
+    if (typeof data === 'object') {
+      switch (data.type) {
+        case 'message':
+          addReceivedMessage(data.text, senderName);
+          break;
+        case 'system':
+          addSystemMessage(data.message);
+          break;
+        // REMOVE 'newPeer' case - host sends full 'peerList' instead
+        // case 'newPeer': ... removed ...
+        case 'peerList': // Guest receives updated list from host
+            if (!isRoomCreator) { // Only guests should process lists received this way
+                addSystemMessage(`Received peer list update from host.`);
+                peersInfo = data.peers;
+                updateOnlineUsersList();
+            }
+            break;
+        case 'screenShareStarting':
+          addSystemMessage(`${senderName} is starting to share their screen...`);
+          break;
+        case 'screenShareStopped':
+          cleanupScreenShare(senderPeerId, senderName);
+          break;
+        case 'audioShareStarting':
+          addSystemMessage(`${senderName} is starting to share audio...`);
+          break;
+        case 'audioShareStopped':
+          cleanupAudioShare(senderPeerId, senderName);
+          break;
+        case 'file-chunk':
+          handleFileChunk(data, senderPeerId);
+          break;
+        default:
+          console.log('Received unknown data object type:', data.type, data);
+      }
+    } else if (typeof data === 'string') {
+       addReceivedMessage(data, senderName);
+    } else {
+       console.log('Received unexpected data format:', data);
     }
+}
 
-    // If the disconnected peer was sharing screen, reset the screen sharing view
-    if (screenSharingPeerId === connection.peer) {
+// Helper to clean up media if a peer disconnects or stops sharing
+function cleanupMediaForPeer(peerId, peerUsername) {
+   cleanupScreenShare(peerId, peerUsername, "(disconnected)");
+   cleanupAudioShare(peerId, peerUsername, "(disconnected)");
+}
+
+function cleanupScreenShare(peerId, peerUsername, reason = "stopped sharing") {
+   if (screenSharingPeerId === peerId) {
       document.getElementById('shared-screen').style.display = 'none';
       document.getElementById('shared-screen').srcObject = null;
       document.getElementById('screen-placeholder').style.display = 'flex';
       screenSharingPeerId = null;
-      addSystemMessage(`${connection.metadata?.username || 'Someone'} stopped sharing their screen (disconnected)`);
-    }
+      addSystemMessage(`${peerUsername || 'Someone'} ${reason} their screen`);
+   }
+}
 
-    // If the disconnected peer was sharing audio, reset the audio sharing view
-    if (audioSharingPeerId === connection.peer) {
+ function cleanupAudioShare(peerId, peerUsername, reason = "stopped sharing") {
+   if (audioSharingPeerId === peerId) {
       document.getElementById('shared-audio').style.display = 'none';
       document.getElementById('shared-audio').srcObject = null;
       document.getElementById('audio-placeholder').style.display = 'flex';
+      // Ensure visualizer is removed if it exists and belongs to this stream
+      const visualizer = document.getElementById('audio-visualizer');
+      if (visualizer) visualizer.remove();
+      if (audioVisualizerInterval) clearInterval(audioVisualizerInterval);
+      if (audioContext) audioContext.close().catch(e => console.error("Error closing audio context:", e));
+      audioContext = null;
+      audioAnalyser = null;
+
       audioSharingPeerId = null;
-      addSystemMessage(`${connection.metadata?.username || 'Someone'} stopped sharing their audio (disconnected)`);
-    }
-  });
+      addSystemMessage(`${peerUsername || 'Someone'} ${reason} their audio`);
+   }
 }
 
+
 function leaveRoom() {
-  // Stop screen sharing if active
-  if (isScreenSharing) {
-    stopScreenShare();
-  }
+  addSystemMessage('Leaving room...');
+  // Stop media sharing
+  if (isScreenSharing) stopScreenShare(false); // Pass false to prevent broadcast
+  if (isAudioSharing) stopAudioShare(false); // Pass false to prevent broadcast
 
-  // Stop audio sharing if active
-  if (isAudioSharing) {
-    stopAudioShare();
-  }
+  // Close connections
+  connections.forEach(conn => {
+    if (conn && conn.close) {
+       conn.close();
+    }
+  });
+  connections = [];
+  peersInfo = [];
 
-  connections.forEach(conn => conn.close());
+  // Destroy peer object
   if (peer) {
     peer.destroy();
     peer = null;
   }
-  connections = [];
 
+  // Reset UI
   document.getElementById('setup-card').style.display = 'block';
   document.getElementById('chat-card').style.display = 'none';
+  document.getElementById('online-users-panel').style.display = 'none'; // Hide panel
   document.querySelector('.messages').innerHTML = '';
   document.getElementById('room-info').style.display = 'none';
   document.getElementById('username-error').classList.remove('visible');
   document.getElementById('host-username').value = '';
   document.getElementById('guest-username').value = '';
   document.getElementById('room-code-input').value = '';
+  document.getElementById('room-code').textContent = 'Not created yet';
+  document.getElementById('message').value = '';
+  document.getElementById('file-input').value = ''; // Clear file input
+  document.getElementById('file-progress').style.display = 'none';
+
+
+  // Reset media UI elements
+  document.getElementById('shared-screen').style.display = 'none';
+  document.getElementById('shared-screen').srcObject = null;
+  document.getElementById('screen-placeholder').style.display = 'flex';
+  document.getElementById('screen-sharing-notice').style.display = 'none';
+  document.getElementById('start-share-btn').style.display = 'inline-flex';
+  document.getElementById('stop-share-btn').style.display = 'none';
+
+  document.getElementById('shared-audio').style.display = 'none';
+  document.getElementById('shared-audio').srcObject = null;
+  document.getElementById('audio-placeholder').style.display = 'flex';
+  document.getElementById('audio-placeholder').innerHTML = '<div>No audio is being shared</div>'; // Reset placeholder text
+  document.getElementById('audio-sharing-notice').style.display = 'none';
+  document.getElementById('start-audio-btn').style.display = 'inline-flex';
+  document.getElementById('stop-audio-btn').style.display = 'none';
+  const visualizer = document.getElementById('audio-visualizer');
+  if (visualizer) visualizer.remove();
+  if (audioVisualizerInterval) clearInterval(audioVisualizerInterval);
+  if (audioContext) audioContext.close().catch(e => console.error("Error closing audio context:", e));
+  audioContext = null;
+  audioAnalyser = null;
+
 
   updateConnectionStatus('disconnected');
-  addSystemMessage('You left the room');
+  updateOnlineUsersList(); // Clear the list UI
+  console.log("Left room and cleaned up.");
+}
+
+// Modify stop functions to optionally prevent broadcasting the stop message
+// (used when leaving the room)
+function stopScreenShare(broadcast = true) {
+  if (!isScreenSharing || !localStream) return;
+
+  // Stop all tracks
+  localStream.getTracks().forEach(track => track.stop());
+  localStream = null;
+
+  // Update UI
+  document.getElementById('shared-screen').style.display = 'none';
+  document.getElementById('shared-screen').srcObject = null;
+  document.getElementById('screen-placeholder').style.display = 'flex';
+  document.getElementById('screen-sharing-notice').style.display = 'none';
+  document.getElementById('start-share-btn').style.display = 'inline-flex';
+  document.getElementById('stop-share-btn').style.display = 'none';
+
+  isScreenSharing = false;
+
+
+  if (broadcast) {
+    connections.forEach(conn => {
+      if (conn.open) {
+        conn.send({
+          type: 'screenShareStopped',
+          peerId: peer.id, // Use peer.id consistently
+          username: username
+        });
+      }
+    });
+    addSystemMessage('You stopped sharing your screen');
+  }
+   screenSharingPeerId = null; // Clear regardless of broadcast
+}
+
+function stopAudioShare(broadcast = true) {
+  if (!isAudioSharing || !audioStream) return;
+
+  // Stop all tracks
+  audioStream.getTracks().forEach(track => track.stop());
+  audioStream = null;
+
+  // Clean up audio context if it exists
+  if (audioContext) {
+    clearInterval(audioVisualizerInterval);
+    audioContext.close().catch(e => console.error("Error closing audio context:", e));
+    audioContext = null;
+    audioAnalyser = null;
+  }
+
+  // Update UI
+  document.getElementById('audio-sharing-notice').style.display = 'none';
+  document.getElementById('audio-placeholder').style.display = 'flex';
+  document.getElementById('audio-placeholder').innerHTML = '<div>No audio is being shared</div>'; // Reset placeholder text
+  document.getElementById('start-audio-btn').style.display = 'inline-flex';
+  document.getElementById('stop-audio-btn').style.display = 'none';
+
+  // Remove visualizer if it exists
+  const visualizer = document.getElementById('audio-visualizer');
+  if (visualizer) {
+    visualizer.remove();
+  }
+
+  isAudioSharing = false;
+
+  // Notify all peers that audio sharing has stopped
+  if (broadcast) {
+    connections.forEach(conn => {
+      if (conn.open) {
+        conn.send({
+          type: 'audioShareStopped',
+          peerId: peer.id, // Use peer.id consistently
+          username: username
+        });
+      }
+    });
+    addSystemMessage('You stopped sharing your audio');
+  }
+  audioSharingPeerId = null; // Clear regardless of broadcast
+}
+
+
+// --- Other existing functions (sendMessage, addSystemMessage, etc.) ---
+
+function updateOnlineUsersList() {
+  const listElement = document.getElementById('online-users-list');
+  const panelElement = document.getElementById('online-users-panel');
+  listElement.innerHTML = ''; // Clear current list
+
+  if (peersInfo.length > 0) {
+    peersInfo.forEach(pInfo => {
+      const li = document.createElement('li');
+      li.textContent = pInfo.username;
+      if (pInfo.peerId === peer.id) {
+         const youSpan = document.createElement('span');
+         youSpan.className = 'you-indicator';
+         youSpan.textContent = '(You)';
+         li.appendChild(youSpan);
+      }
+      listElement.appendChild(li);
+    });
+    panelElement.style.display = 'block'; // Show the panel
+  } else {
+    panelElement.style.display = 'none'; // Hide if empty
+  }
 }
 
 function sendMessage() {
